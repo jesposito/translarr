@@ -243,6 +243,7 @@
           <span class="indicator pending" aria-hidden="true"></span>
           <span>Disabled</span>
         {/if}
+        <span class="sr-only"> — auto-translate on Play</span>
       </dd>
     </dl>
     <p class="hint">
