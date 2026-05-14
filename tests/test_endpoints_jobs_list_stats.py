@@ -186,9 +186,11 @@ def test_config_returns_expected_keys(client):
         "radarr_translate_tag",
         "sonarr_translate_tag",
         "webhook_secret_set",
+        "auto_translate_on_playback",
     }
     assert set(body.keys()) == expected
     assert isinstance(body["webhook_secret_set"], bool)
+    assert isinstance(body["auto_translate_on_playback"], bool)
     # Sensible defaults from server.config.Settings — types match.
     assert isinstance(body["reading_rate_cps"], int)
     assert isinstance(body["max_concurrent"], int)

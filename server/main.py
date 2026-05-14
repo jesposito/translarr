@@ -164,6 +164,7 @@ async def get_config() -> dict:
         "radarr_translate_tag": settings.radarr_translate_tag,
         "sonarr_translate_tag": settings.sonarr_translate_tag,
         "webhook_secret_set": bool(settings.webhook_secret),
+        "auto_translate_on_playback": settings.auto_translate_on_playback,
     }
 
 

@@ -33,7 +33,7 @@ def _job_to_request(job: Job) -> TranslateRequest:
 
 
 async def _run_job(job: Job) -> None:
-    from server.subs.pipeline import AlreadyTranslated, translate_media
+    from server.subs.pipeline import AlreadyTranslated, NoSourceSubtitles, translate_media
 
     q = get_queue()
     try:
@@ -58,6 +58,19 @@ async def _run_job(job: Job) -> None:
             output_events=0,
         )
         log.info("job_skipped_already_translated", job_id=job.id, output=str(e.path))
+    except NoSourceSubtitles as e:
+        # Terminal skip — retrying re-runs ffprobe with the same inputs and
+        # cannot succeed. Mark done with $0 cost so playback.start triggers
+        # against English-only items don't churn the retry queue.
+        q.finish(
+            job.id,
+            output_path=None,
+            cost_cents=0,
+            tokens_in=0,
+            tokens_out=0,
+            output_events=0,
+        )
+        log.info("job_skipped_no_source_subtitles", job_id=job.id, reason=str(e))
     except Exception as e:
         log.exception("job_failed", job_id=job.id)
         q.mark_failed(job.id, f"{type(e).__name__}: {e}")

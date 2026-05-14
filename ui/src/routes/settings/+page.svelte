@@ -21,6 +21,7 @@
     radarr_translate_tag: string;
     sonarr_translate_tag: string;
     webhook_secret_set: boolean;
+    auto_translate_on_playback: boolean;
   }
 
   let health = $state<Health | null>(null);
@@ -221,6 +222,36 @@
       <code class="mono">MAX_COST_CENTS_PER_JOB</code>,
       <code class="mono">JOB_TIMEOUT_SECONDS</code>,
       <code class="mono">MAX_CONCURRENT</code>.
+    </p>
+  {:else if configError}
+    <p class="error-inline" role="alert">Couldn't load config.</p>
+  {:else}
+    <div class="skeleton" style="width: 60%; height: 16px;"></div>
+  {/if}
+</section>
+
+<section class="card" aria-labelledby="playback-heading">
+  <h2 id="playback-heading">On-demand translation</h2>
+  {#if config}
+    <dl class="kv">
+      <dt>Auto-translate on Play</dt>
+      <dd>
+        {#if config.auto_translate_on_playback}
+          <span class="indicator ok" aria-hidden="true"></span>
+          <span>Enabled</span>
+        {:else}
+          <span class="indicator pending" aria-hidden="true"></span>
+          <span>Disabled</span>
+        {/if}
+      </dd>
+    </dl>
+    <p class="hint">
+      When enabled, pressing Play on an item with foreign-only subtitles
+      kicks off an immediate translation; the new track appears in the player
+      ~1-2 minutes later. Existing daily and per-job cost caps still apply.
+      Defaults to <em>disabled</em> — set
+      <code class="mono">AUTO_TRANSLATE_ON_PLAYBACK=true</code> in your
+      <code class="mono">.env</code> and restart to opt in.
     </p>
   {:else if configError}
     <p class="error-inline" role="alert">Couldn't load config.</p>
