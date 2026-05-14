@@ -1,9 +1,11 @@
 import asyncio
 import logging
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 import structlog
 from fastapi import FastAPI, HTTPException
+from fastapi.staticfiles import StaticFiles
 
 from server import __version__
 from server.config import settings
@@ -148,3 +150,16 @@ async def translate_sync(req: TranslateRequest) -> TranslateResponse:
         raise HTTPException(status_code=504, detail=str(e)) from e
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+# --- Static UI mount (v0.6.5) ---------------------------------------------
+# Serves the prerendered SvelteKit bundle at GET /. MUST be mounted LAST so it
+# does not shadow API routes registered above (/health, /translate, /jobs/*,
+# /webhooks/*). Guarded: if ui/dist/ does not exist (dev environment without
+# `npm run build`), the server still starts cleanly and GET / simply 404s.
+_UI_DIST = Path(__file__).resolve().parent.parent / "ui" / "dist"
+if _UI_DIST.is_dir():
+    app.mount("/", StaticFiles(directory=str(_UI_DIST), html=True), name="ui")
+    log.info("ui_mounted", path=str(_UI_DIST))
+else:
+    log.info("ui_not_built", expected_path=str(_UI_DIST))
