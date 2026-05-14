@@ -1,16 +1,59 @@
 <script lang="ts">
   import '$lib/tokens.css';
   import { page } from '$app/stores';
+  import { afterNavigate } from '$app/navigation';
+  import { onMount } from 'svelte';
 
   let { children } = $props();
 
   let navOpen = $state(false);
+  let isMobile = $state(false);
 
   function isActive(href: string, current: string): boolean {
     if (href === '/') return current === '/';
     return current === href || current.startsWith(href + '/');
   }
+
+  // M3: focus <main> after every SPA navigation so screen readers hear
+  // the new page heading instead of staying anchored to whatever link
+  // the user clicked.
+  afterNavigate(() => {
+    const m = document.getElementById('main');
+    if (m) (m as HTMLElement).focus({ preventScroll: false });
+    navOpen = false;
+  });
+
+  // Track viewport for mobile-only behaviors (inert nav when closed,
+  // outside-click dismiss). Single matchMedia listener — no resize spam.
+  onMount(() => {
+    const mq = window.matchMedia('(max-width: 768px)');
+    isMobile = mq.matches;
+    const handler = (e: MediaQueryListEvent) => (isMobile = e.matches);
+    mq.addEventListener('change', handler);
+    return () => mq.removeEventListener('change', handler);
+  });
+
+  // M4: Escape closes the mobile nav and returns focus to the toggle.
+  function onKeydown(e: KeyboardEvent) {
+    if (e.key === 'Escape' && navOpen) {
+      navOpen = false;
+      const h = document.querySelector<HTMLButtonElement>('.hamburger');
+      h?.focus();
+    }
+  }
+
+  // M4: pointer-down outside the panel + toggle dismisses the nav.
+  function onPointerDown(e: PointerEvent) {
+    if (!navOpen) return;
+    const t = e.target as HTMLElement | null;
+    if (!t) return;
+    if (!t.closest('#primary-nav') && !t.closest('.hamburger')) {
+      navOpen = false;
+    }
+  }
 </script>
+
+<svelte:window onkeydown={onKeydown} onpointerdown={onPointerDown} />
 
 <svelte:head>
   <title>Translarr</title>
@@ -38,6 +81,8 @@
     class="sidenav"
     class:open={navOpen}
     aria-label="Primary"
+    aria-hidden={isMobile && !navOpen ? 'true' : undefined}
+    inert={isMobile && !navOpen ? true : undefined}
   >
     <div class="brand-block">
       <span class="brand">Translarr</span>
@@ -47,21 +92,18 @@
         <a
           href="/"
           aria-current={isActive('/', $page.url.pathname) ? 'page' : undefined}
-          onclick={() => (navOpen = false)}
         >Dashboard</a>
       </li>
       <li>
         <a
           href="/translate"
           aria-current={isActive('/translate', $page.url.pathname) ? 'page' : undefined}
-          onclick={() => (navOpen = false)}
         >Translate</a>
       </li>
       <li>
         <a
           href="/settings"
           aria-current={isActive('/settings', $page.url.pathname) ? 'page' : undefined}
-          onclick={() => (navOpen = false)}
         >Settings</a>
       </li>
     </ul>
@@ -77,6 +119,8 @@
     display: grid;
     grid-template-columns: 240px 1fr;
     min-height: 100vh;
+    /* M2: use dynamic viewport on mobile (URL bar collapse) */
+    min-height: 100dvh;
   }
 
   .topbar {
@@ -90,6 +134,7 @@
     position: sticky;
     top: 0;
     height: 100vh;
+    height: 100dvh;
     overflow-y: auto;
   }
 
@@ -124,8 +169,9 @@
     text-decoration: none;
     font-size: var(--text-sm);
     font-weight: 500;
-    min-height: 36px;
-    line-height: 20px;
+    /* M7-adjacent: nav-link target meets 44px floor */
+    min-height: 44px;
+    line-height: 28px;
     transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
   }
   .sidenav a:hover {
@@ -159,6 +205,8 @@
       align-items: center;
       justify-content: space-between;
       padding: var(--space-3) var(--space-4);
+      /* M6: clear iOS notch */
+      padding-top: max(var(--space-3), env(safe-area-inset-top));
       background: var(--bg-elevated);
       border-bottom: 1px solid var(--border);
       position: sticky;
@@ -171,8 +219,9 @@
       border: 1px solid var(--border-strong);
       color: var(--text);
       border-radius: var(--radius-sm);
-      width: 36px;
-      height: 36px;
+      /* M7: 44x44 touch target on mobile */
+      width: 44px;
+      height: 44px;
       display: inline-flex;
       align-items: center;
       justify-content: center;
@@ -185,6 +234,9 @@
       right: 0;
       height: auto;
       max-height: calc(100vh - 48px);
+      max-height: calc(100dvh - 48px);
+      /* M6: clear iOS home indicator */
+      padding-bottom: max(var(--space-4), env(safe-area-inset-bottom));
       transform: translateY(-110%);
       transition: transform var(--dur) var(--ease);
       z-index: 9;
