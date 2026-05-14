@@ -1,7 +1,6 @@
 import asyncio
 import logging
 from contextlib import asynccontextmanager
-from pathlib import Path
 
 import structlog
 from fastapi import FastAPI, HTTPException
@@ -70,10 +69,13 @@ async def translate(req: TranslateRequest) -> dict:
 
     q = get_queue()
     existing = q.find_by_dedup(dedup_key)
-    if existing and existing.state in {JobState.QUEUED, JobState.RUNNING, JobState.RETRYING, JobState.DONE}:
-        if not req.force:
-            return {"status": "dedup", "job_id": existing.id, "state": existing.state.value}
-        # Force re-translate: enqueue a new job (dedup_key shared by both rows; that's OK).
+    if (
+        existing
+        and existing.state in {JobState.QUEUED, JobState.RUNNING, JobState.RETRYING, JobState.DONE}
+        and not req.force
+    ):
+        return {"status": "dedup", "job_id": existing.id, "state": existing.state.value}
+    # Force re-translate or no existing: fall through to enqueue.
 
     job = Job(
         id="",

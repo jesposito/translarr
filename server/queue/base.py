@@ -8,13 +8,13 @@ storage-agnostic.
 from __future__ import annotations
 
 import hashlib
-from dataclasses import dataclass, field
-from enum import Enum
+from dataclasses import dataclass
+from enum import StrEnum
 from pathlib import Path
 from typing import Protocol
 
 
-class JobState(str, Enum):
+class JobState(StrEnum):
     QUEUED = "queued"
     RUNNING = "running"
     RETRYING = "retrying"
