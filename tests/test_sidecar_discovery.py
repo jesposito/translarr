@@ -116,3 +116,43 @@ def test_find_sidecar_adventure_time_real_case(tmp_path: Path):
     result = _find_sidecar_subtitle(media, "ru")
     assert result is not None
     assert result.path == sidecar
+
+
+def test_find_sidecar_scans_plex_subtitles_subdir(tmp_path: Path):
+    """Plex convention: sidecars live in <media.parent>/Subtitles/<basename>.<Lang>.srt."""
+    media = tmp_path / "Movie.mp4"
+    _write_empty(media)
+    subs = tmp_path / "Subtitles"
+    subs.mkdir()
+    vi = subs / "Movie.Vietnamese.srt"
+    _write_empty(vi)
+    result = _find_sidecar_subtitle(media, "en")
+    assert result is not None
+    assert result.path == vi
+    assert result.lang == "vi"
+
+
+def test_parse_sidecar_lang_full_english_name():
+    assert _parse_sidecar_lang("Vietnamese") == "vi"
+    assert _parse_sidecar_lang("Indonesian") == "id"
+    assert _parse_sidecar_lang("Danish") == "da"
+    assert _parse_sidecar_lang("Russian") == "ru"
+
+
+def test_find_sidecar_chamber_of_secrets_real_case(tmp_path: Path):
+    """The actual user case: Chamber of Secrets with Plex Subtitles/ folder
+    containing full-English-name .srt files (Vietnamese, Indonesian, etc).
+    Plus a .en.srt already next to the mp4 (the existing English track)."""
+    media = tmp_path / "Chamber.mp4"
+    _write_empty(media)
+    _write_empty(tmp_path / "Chamber.en.srt")  # already English — skip
+    subs = tmp_path / "Subtitles"
+    subs.mkdir()
+    _write_empty(subs / "Chamber.English.srt")  # also English in the subdir — skip
+    vi = subs / "Chamber.Vietnamese.srt"
+    _write_empty(vi)
+    _write_empty(subs / "Chamber.Indonesian.srt")
+    result = _find_sidecar_subtitle(media, "en")
+    assert result is not None
+    # One of the non-English ones; deterministic by path sort.
+    assert result.lang in ("vi", "id", "da", "nl", "fr", "de")
