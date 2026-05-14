@@ -92,20 +92,31 @@ class SQLiteQueue:
         return _row_to_job(row) if row else None
 
     def claim_next(self) -> Job | None:
-        """Atomic claim: oldest QUEUED job → RUNNING, attempts++."""
+        """Atomic claim: oldest QUEUED-or-RETRYING job -> RUNNING, attempts++.
+
+        Bugfix 2026-05-15: claim_next used to look at QUEUED only, which
+        meant any job ``mark_failed`` had transitioned to RETRYING stayed
+        wedged forever. Retries are part of the contract (max_attempts=3
+        by default), so we include RETRYING in the eligibility set. Order
+        by created_at ASC so fresher work doesn't starve older retries.
+        """
         conn = get_conn()
         now = _now()
-        # Find oldest queued.
         row = conn.execute(
-            "SELECT * FROM jobs WHERE state = 'queued' ORDER BY created_at ASC LIMIT 1"
+            """
+            SELECT * FROM jobs
+            WHERE state IN ('queued', 'retrying')
+            ORDER BY created_at ASC LIMIT 1
+            """
         ).fetchone()
         if not row:
             return None
-        # Atomic transition.
+        # Atomic transition — guard on the original state so we never
+        # double-claim a row another worker just won.
         cur = conn.execute(
             """
             UPDATE jobs SET state='running', attempts=attempts+1, updated_at=?
-            WHERE id=? AND state='queued'
+            WHERE id=? AND state IN ('queued', 'retrying')
             """,
             (now, row["id"]),
         )
