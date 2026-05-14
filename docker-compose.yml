@@ -1,0 +1,25 @@
+services:
+  translarr:
+    build: .
+    image: translarr:latest
+    container_name: translarr
+    restart: unless-stopped
+    ports:
+      - "9100:9000"
+    env_file: .env
+    volumes:
+      # Mount your media library read-write so Translarr can drop .srt next to videos
+      - /mnt/user/Ansible NAS/Emby/Media:/media
+      - ./data:/data
+    networks:
+      - default
+
+  # Optional local LLM. Uncomment to run Ollama alongside.
+  # ollama:
+  #   image: ollama/ollama:latest
+  #   container_name: ollama
+  #   restart: unless-stopped
+  #   ports:
+  #     - "11434:11434"
+  #   volumes:
+  #     - ./ollama-data:/root/.ollama
