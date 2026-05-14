@@ -70,6 +70,25 @@ async def _run_job(job: Job) -> None:
             target_lang=job.target_lang,
             reason="already translated",
         )
+    except FileNotFoundError as e:
+        # Terminal skip — retrying with the same media_path will hit the
+        # same FileNotFoundError. Treat as $0 done so a typo'd webhook
+        # payload or stale Emby item doesn't churn the retry queue. The
+        # error string is preserved on the job row for the UI to surface.
+        q.finish(
+            job.id,
+            output_path=None,
+            cost_cents=0,
+            tokens_in=0,
+            tokens_out=0,
+            output_events=0,
+        )
+        log.info("job_skipped_file_not_found", job_id=job.id, error=str(e))
+        notifications.notify_skip(
+            media_path=job.media_path,
+            target_lang=job.target_lang,
+            reason="media path not found",
+        )
     except NoSourceSubtitles as e:
         # Terminal skip — retrying re-runs ffprobe with the same inputs and
         # cannot succeed. Mark done with $0 cost so playback.start triggers

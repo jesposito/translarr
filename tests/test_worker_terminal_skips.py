@@ -98,6 +98,27 @@ async def test_already_translated_marks_done_with_path():
 
 
 @pytest.mark.asyncio
+async def test_file_not_found_marks_done_zero_cost():
+    """Retrying a missing file just re-fails the same way. Treat as $0 skip."""
+    from server.queue.worker import _run_job
+
+    job = _enqueue_job()
+    claimed = get_queue().claim_next()
+    assert claimed is not None
+
+    with patch(
+        "server.subs.pipeline.translate_media",
+        side_effect=FileNotFoundError("media not found: /m/missing.mkv"),
+    ):
+        await _run_job(claimed)
+
+    after = get_queue().get(job.id)
+    assert after is not None
+    assert after.state == JobState.DONE
+    assert after.cost_cents == 0
+
+
+@pytest.mark.asyncio
 async def test_unknown_exception_still_retries_then_fails():
     """Anything OTHER than the two terminal-skip signals stays retry-eligible."""
     from server.queue.worker import _run_job
