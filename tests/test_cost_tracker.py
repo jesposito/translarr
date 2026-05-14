@@ -1,12 +1,19 @@
+import tempfile
+
 import pytest
 
 from server import cost_tracker
+from server import db as db_module
 
 
 @pytest.fixture(autouse=True)
-def _reset():
+def _reset(monkeypatch):
+    tmp = tempfile.mkdtemp()
+    monkeypatch.setenv("TRANSLARR_DATA_DIR", tmp)
+    db_module.close_for_tests()
     cost_tracker.reset_for_tests()
     yield
+    db_module.close_for_tests()
     cost_tracker.reset_for_tests()
 
 

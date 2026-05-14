@@ -16,22 +16,48 @@ class CostCapExceeded(RuntimeError):
     """Raised when daily or per-job cost cap would be exceeded."""
 
 
-# Date-keyed accumulator. Reset implicitly when date rolls over.
-_daily_spend_cents: dict[str, int] = {}
-
-
 def _today() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
 
+def _try_db_conn():
+    """Best-effort: return the SQLite conn if the DB module is initialized OK.
+
+    Returns None if the DB layer can't be loaded (keeps tests/dev environments
+    without TRANSLARR_DATA_DIR set from hard-failing the cost tracker).
+    """
+    try:
+        from server.db import get_conn  # local import to avoid circular at module load
+
+        return get_conn()
+    except Exception:
+        return None
+
+
 def daily_total_cents() -> int:
-    return _daily_spend_cents.get(_today(), 0)
+    conn = _try_db_conn()
+    if conn is None:
+        return 0
+    row = conn.execute(
+        "SELECT spent_cents FROM daily_usage WHERE day = ?", (_today(),)
+    ).fetchone()
+    return row["spent_cents"] if row else 0
 
 
 def record(cost_cents: int) -> None:
+    conn = _try_db_conn()
+    if conn is None:
+        log.warning("cost_record_no_db", added_cents=cost_cents)
+        return
     day = _today()
-    _daily_spend_cents[day] = _daily_spend_cents.get(day, 0) + cost_cents
-    log.info("cost_recorded", day=day, added_cents=cost_cents, daily_total=_daily_spend_cents[day])
+    conn.execute(
+        """
+        INSERT INTO daily_usage (day, spent_cents) VALUES (?, ?)
+        ON CONFLICT(day) DO UPDATE SET spent_cents = spent_cents + excluded.spent_cents
+        """,
+        (day, cost_cents),
+    )
+    log.info("cost_recorded", day=day, added_cents=cost_cents, daily_total=daily_total_cents())
 
 
 def check_daily_cap(max_daily_cents: int) -> None:
@@ -74,5 +100,7 @@ def estimate_cents(model: str, tokens_in: int, tokens_out: int) -> int:
 
 
 def reset_for_tests() -> None:
-    """Test-only helper."""
-    _daily_spend_cents.clear()
+    """Test-only helper. Truncates daily_usage if DB exists."""
+    conn = _try_db_conn()
+    if conn is not None:
+        conn.execute("DELETE FROM daily_usage")
