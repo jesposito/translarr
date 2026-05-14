@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import time
 import uuid
+from datetime import UTC, datetime
 from typing import Any
 
 import structlog
@@ -199,6 +200,104 @@ class SQLiteQueue:
                 """,
                 (error, now, now, job_id),
             )
+
+    def list_jobs(
+        self, state: JobState | None, limit: int, offset: int
+    ) -> tuple[int, list[Job]]:
+        """Returns (total_matching_count, list_of_jobs_for_page).
+
+        Ordered by created_at DESC. Uses parameterized SQL only.
+        `total` is a separate COUNT(*) so paginated clients can report totals.
+        """
+        conn = get_conn()
+        if state is not None:
+            total_row = conn.execute(
+                "SELECT COUNT(*) AS c FROM jobs WHERE state = ?", (state.value,)
+            ).fetchone()
+            rows = conn.execute(
+                """
+                SELECT * FROM jobs WHERE state = ?
+                ORDER BY created_at DESC LIMIT ? OFFSET ?
+                """,
+                (state.value, limit, offset),
+            ).fetchall()
+        else:
+            total_row = conn.execute("SELECT COUNT(*) AS c FROM jobs").fetchone()
+            rows = conn.execute(
+                """
+                SELECT * FROM jobs
+                ORDER BY created_at DESC LIMIT ? OFFSET ?
+                """,
+                (limit, offset),
+            ).fetchall()
+        total = int(total_row["c"]) if total_row else 0
+        return total, [_row_to_job(r) for r in rows]
+
+    def aggregate_stats(self) -> dict:
+        """Returns the {today, all_time, queue} dict for /stats endpoint.
+
+        All single-query reads. Uses parameterized SQL.
+        """
+        conn = get_conn()
+        today_str = datetime.now(UTC).strftime("%Y-%m-%d")
+
+        # Today's cost from daily_usage.
+        daily_row = conn.execute(
+            "SELECT spent_cents FROM daily_usage WHERE day = ?", (today_str,)
+        ).fetchone()
+        today_cost = int(daily_row["spent_cents"]) if daily_row else 0
+
+        # Today's job counts: aggregate by state in one query.
+        # Compute UTC start-of-day epoch as the cutoff.
+        start_of_day_epoch = int(
+            datetime.strptime(today_str, "%Y-%m-%d").replace(tzinfo=UTC).timestamp()
+        )
+        today_agg = conn.execute(
+            """
+            SELECT
+              COUNT(*) AS total,
+              SUM(CASE WHEN state = 'done' THEN 1 ELSE 0 END) AS done,
+              SUM(CASE WHEN state = 'failed' THEN 1 ELSE 0 END) AS failed,
+              SUM(CASE WHEN state IN ('queued','running','retrying') THEN 1 ELSE 0 END)
+                AS in_flight
+            FROM jobs
+            WHERE created_at >= ?
+            """,
+            (start_of_day_epoch,),
+        ).fetchone()
+
+        # All-time aggregate.
+        all_time_row = conn.execute(
+            "SELECT COUNT(*) AS total, COALESCE(SUM(cost_cents), 0) AS cost FROM jobs"
+        ).fetchone()
+
+        # Queue depth by state in one query.
+        queue_rows = conn.execute(
+            """
+            SELECT state, COUNT(*) AS c FROM jobs
+            WHERE state IN ('queued','running','retrying')
+            GROUP BY state
+            """
+        ).fetchall()
+        queue_counts = {"queued": 0, "running": 0, "retrying": 0}
+        for r in queue_rows:
+            queue_counts[r["state"]] = int(r["c"])
+
+        return {
+            "today": {
+                "date": today_str,
+                "cost_cents": today_cost,
+                "jobs_count": int(today_agg["total"] or 0),
+                "jobs_done": int(today_agg["done"] or 0),
+                "jobs_failed": int(today_agg["failed"] or 0),
+                "jobs_in_flight": int(today_agg["in_flight"] or 0),
+            },
+            "all_time": {
+                "cost_cents": int(all_time_row["cost"] or 0),
+                "jobs_count": int(all_time_row["total"] or 0),
+            },
+            "queue": queue_counts,
+        }
 
     def reset_orphaned_running_jobs(self) -> int:
         """Server-start recovery: reset stuck RUNNING jobs to QUEUED."""

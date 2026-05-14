@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 import structlog
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.staticfiles import StaticFiles
 
 from server import __version__
@@ -92,6 +92,56 @@ async def translate(req: TranslateRequest) -> dict:
     )
     persisted = q.enqueue(job)
     return {"status": "queued", "job_id": persisted.id}
+
+
+@app.get("/jobs")
+async def list_jobs(
+    state: str | None = Query(default=None),
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+) -> dict:
+    """List jobs with optional state filter and pagination (v0.6.5 Web UI).
+
+    Ordered by created_at DESC. `limit` is bounded server-side at 200.
+    """
+    state_filter: JobState | None = None
+    if state is not None:
+        try:
+            state_filter = JobState(state)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=f"invalid_state: {state}") from e
+
+    total, jobs = get_queue().list_jobs(state_filter, limit, offset)
+    return {
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+        "jobs": [
+            {
+                "id": j.id,
+                "state": j.state.value,
+                "media_path": j.media_path,
+                "target_lang": j.target_lang,
+                "output_path": j.output_path,
+                "attempts": j.attempts,
+                "cost_cents": j.cost_cents,
+                "error": j.error,
+                "created_at": j.created_at,
+                "updated_at": j.updated_at,
+                "finished_at": j.finished_at,
+            }
+            for j in jobs
+        ],
+    }
+
+
+@app.get("/stats")
+async def get_stats() -> dict:
+    """Aggregate stats for the v0.6.5 Web UI dashboard.
+
+    Returns {today, all_time, queue} — all single-query reads, no N+1.
+    """
+    return get_queue().aggregate_stats()
 
 
 @app.get("/jobs/{job_id}")
