@@ -82,6 +82,25 @@ namespace Translarr.Emby
     }
 
     /// <summary>
+    /// Response body from <c>POST /translate/sync</c>. We only consume
+    /// the <c>output_path</c> field; the rest is informational.
+    /// </summary>
+    public class TranslateResult
+    {
+        [JsonProperty("output_path")]
+        public string OutputPath { get; set; }
+
+        [JsonProperty("source_events")]
+        public int SourceEvents { get; set; }
+
+        [JsonProperty("output_events")]
+        public int OutputEvents { get; set; }
+
+        [JsonProperty("cost_cents")]
+        public int CostCents { get; set; }
+    }
+
+    /// <summary>
     /// Response body from <c>GET /health</c>. Used by the settings page
     /// "Test Connection" button to surface server version and provider.
     /// </summary>
