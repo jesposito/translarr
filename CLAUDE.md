@@ -96,7 +96,8 @@ translarr/
 | v0.3 | Jellyfin plugin (C#): port of v0.2 | After v0.2 |
 | v0.4 | Critic pass + audio-grounded correction + glossary persistence (SQLite) | After v0.3 |
 | v0.5 | Persistent queue, per-show auto-translate flags | After v0.4 |
-| v0.6 | Library-wide language fill scheduled task, cost dashboard | After v0.5 |
+| v0.6 | Library-wide language fill scheduled task, /stats endpoint (backend) | After v0.4 |
+| v0.6.5 | Polished standalone Translarr Web UI — dashboard, job detail, settings, glossary editor, coverage matrix. Goes through design-consultation + accessibility-lead review. | After v0.6 |
 | v0.7 (contingent) | Audio-grounded correction (only if v0.4 critic telemetry justifies) | Conditional |
 | v0.8a | Provider-fetch fallback: direct integrations OpenSubtitles/Jimaku/Animetosho (zero Bazarr) | After v0.6 |
 | v0.8b | Optional Bazarr-as-fetch-proxy adapter (opt-in, for sandboxed Bazarr setups only) | After v0.8a |
