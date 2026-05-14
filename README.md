@@ -161,7 +161,8 @@ Translarr is a free, self-hosted tool. The full vision ships before any "launch"
 | v0.2 | C# Emby plugin: scheduled task + REST controller + settings page + per-show auto-translate flag (no context menu — Emby SDK constraint per v0.1.25 spike) | Next |
 | v0.3 | Jellyfin plugin (port of v0.2, shares Core class library) | After v0.2 |
 | v0.4 | Critic pass + glossary persistence + ASS opt-in output | After v0.3 |
-| v0.6 | Library-wide language fill scheduled task, `/stats` endpoint | After v0.4 |
+| v0.6 | Library-wide language fill scheduled task, `/stats` endpoint (backend) | After v0.4 |
+| v0.6.5 | Polished standalone Translarr Web UI — dashboard, job detail, settings, glossary editor, coverage matrix. Goes through `/design-consultation` + accessibility review. WCAG 2.2 AA target. | After v0.6 |
 | v0.7 | Audio-grounded correction (CONTINGENT on v0.4 critic telemetry) | Conditional |
 | v0.8a | Direct provider integrations (OpenSubtitles, Jimaku, Animetosho) for empty-subs case | After v0.6 |
 | v0.8b | Optional Bazarr-as-fetch-proxy adapter (opt-in, sandboxed Bazarr only) | After v0.8a |
