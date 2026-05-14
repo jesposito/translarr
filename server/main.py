@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 import structlog
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Response
 from fastapi.staticfiles import StaticFiles
 
 from server import __version__
@@ -213,16 +213,53 @@ async def translate_sync(req: TranslateRequest) -> TranslateResponse:
     except FileNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
     except AlreadyTranslated as e:
-        raise HTTPException(
-            status_code=409,
-            detail={"error": "already_translated", "output_path": str(e.path)},
-        ) from e
+        # Existing output is fine — return its metadata via TranslateResponse
+        # so callers (notably the Emby plugin's ISubtitleProvider) can fetch
+        # the bytes via /output without a second click. Counts as success,
+        # not an error.
+        return TranslateResponse(
+            output_path=e.path,
+            source_events=0,
+            output_events=0,
+            lines_translated=0,
+            duration_seconds=0.0,
+            model="-",
+            provider="-",
+            cost_cents=0,
+            tokens_in=0,
+            tokens_out=0,
+        )
     except CostCapExceeded as e:
         raise HTTPException(status_code=429, detail=str(e)) from e
     except TimeoutError as e:
         raise HTTPException(status_code=504, detail=str(e)) from e
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+@app.get("/output")
+async def get_output(path: str) -> Response:
+    """Return the raw bytes of a translated subtitle file.
+
+    Path must resolve inside MEDIA_ROOT (anti-traversal guard). Used by
+    the Emby plugin's ISubtitleProvider implementation to fetch the .srt
+    after /translate/sync completes — the plugin and server run in
+    different containers, so we can't share files via the filesystem.
+    """
+    p = Path(path)
+    if not p.is_absolute():
+        p = settings.media_root / p
+    p = p.resolve()
+    media_root_resolved = settings.media_root.resolve()
+    try:
+        p.relative_to(media_root_resolved)
+    except ValueError as e:
+        raise HTTPException(status_code=403, detail="path outside MEDIA_ROOT") from e
+    if not p.exists() or not p.is_file():
+        raise HTTPException(status_code=404, detail="output not found")
+    if p.suffix.lower() not in (".srt", ".ass", ".ssa", ".vtt"):
+        raise HTTPException(status_code=415, detail="unsupported output extension")
+    return Response(content=p.read_bytes(), media_type="text/plain; charset=utf-8")
 
 
 # --- Static UI mount (v0.6.5) ---------------------------------------------
