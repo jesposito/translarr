@@ -135,6 +135,11 @@ def test_stats_empty_db_returns_zeros(client):
     # Date present + ISO-formatted.
     assert "date" in body["today"]
     assert len(body["today"]["date"]) == 10
+    # Budget block — shipped with cost-cap headroom polish slice.
+    assert body["budget"]["spent_cents"] == 0
+    assert body["budget"]["pct_used"] == 0.0
+    assert body["budget"]["daily_cap_cents"] > 0
+    assert body["budget"]["remaining_cents"] == body["budget"]["daily_cap_cents"]
 
 
 def test_stats_after_cost_recorded(client):

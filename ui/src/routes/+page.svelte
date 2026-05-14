@@ -36,6 +36,12 @@
     };
     all_time: { cost_cents: number; jobs_count: number };
     queue: { queued: number; running: number; retrying: number };
+    budget: {
+      daily_cap_cents: number;
+      spent_cents: number;
+      remaining_cents: number;
+      pct_used: number;
+    };
   }
 
   let health = $state<Health | null>(null);
@@ -198,6 +204,17 @@
           {dollars(stats.today.cost_cents)}
         </span>
         <span class="label">Today's cost</span>
+        <span
+          class="cap-bar"
+          aria-hidden="true"
+          class:warn={stats.budget.pct_used >= 70}
+          class:hot={stats.budget.pct_used >= 90}
+        >
+          <span class="cap-fill" style="width: {Math.min(100, stats.budget.pct_used)}%"></span>
+        </span>
+        <span class="cap-label">
+          {stats.budget.pct_used.toFixed(0)}% of {dollars(stats.budget.daily_cap_cents)} cap
+        </span>
       </div>
       <div class="stat">
         <span class="value">{stats.today.jobs_count}</span>
@@ -398,6 +415,28 @@
     display: grid;
     grid-template-columns: repeat(4, 1fr);
     gap: var(--space-4);
+  }
+  .cap-bar {
+    display: block;
+    height: 4px;
+    background: var(--bg-input);
+    border-radius: 999px;
+    overflow: hidden;
+    margin-top: var(--space-2);
+  }
+  .cap-fill {
+    display: block;
+    height: 100%;
+    background: var(--accent);
+    transition: width var(--dur) var(--ease);
+  }
+  .cap-bar.warn .cap-fill { background: var(--warn); }
+  .cap-bar.hot  .cap-fill { background: var(--error); }
+  .cap-label {
+    font-size: var(--text-xs);
+    color: var(--text-muted);
+    margin-top: 2px;
+    font-variant-numeric: tabular-nums;
   }
   @media (max-width: 768px) {
     .stat-row { grid-template-columns: repeat(2, 1fr); }
