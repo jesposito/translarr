@@ -32,5 +32,13 @@ class Settings(BaseSettings):
     radarr_translate_tag: str = "radarr_translate"
     sonarr_translate_tag: str = "sonarr_translate"
 
+    # Library refresh hooks — fire after a translation completes so Emby/Jellyfin
+    # pick up the new .srt without a full scan. All optional; leave blank to skip.
+    emby_url: str | None = None              # e.g. http://AnsibleMedia:8096
+    emby_api_key: str | None = None
+    jellyfin_url: str | None = None          # e.g. http://jellyfin:8096
+    jellyfin_api_key: str | None = None
+    library_refresh_timeout_seconds: int = 10
+
 
 settings = Settings()

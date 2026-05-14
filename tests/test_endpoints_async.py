@@ -72,6 +72,26 @@ def test_get_jobs_404_for_unknown(client):
     assert r.status_code == 404
 
 
+def test_translate_unaffected_when_emby_configured_but_unreachable(client, monkeypatch):
+    """Library-refresh hook must not break /translate when Emby is unreachable.
+
+    The hook is fire-and-forget; even if Emby's host doesn't resolve, the queue
+    should still accept the job. We only exercise the request path here — the
+    refresh would only run after a successful translation completes in a worker.
+    """
+    from server.config import settings
+
+    monkeypatch.setattr(settings, "emby_url", "http://nonexistent-host.invalid:8096")
+    monkeypatch.setattr(settings, "emby_api_key", "x")
+
+    r = client.post(
+        "/translate",
+        json={"media_path": "/movies/refresh-test.mkv", "target_lang": "en"},
+    )
+    assert r.status_code == 200
+    assert r.json()["status"] == "queued"
+
+
 def test_delete_jobs_cancels_pending(client):
     enq = client.post("/translate", json={"media_path": "/movies/x.mkv", "target_lang": "en"}).json()
     r = client.delete(f"/jobs/{enq['job_id']}")

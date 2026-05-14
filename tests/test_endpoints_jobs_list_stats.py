@@ -164,3 +164,59 @@ def test_stats_queue_counts_match_enqueued(client):
     assert r["today"]["jobs_count"] == 3
     assert r["today"]["jobs_in_flight"] == 3
     assert r["all_time"]["jobs_count"] == 3
+
+
+# --- /config (sanitized server configuration) ------------------------------
+
+
+def test_config_returns_expected_keys(client):
+    r = client.get("/config")
+    assert r.status_code == 200
+    body = r.json()
+    expected = {
+        "llm_provider",
+        "llm_model",
+        "target_lang",
+        "reading_rate_cps",
+        "max_concurrent",
+        "context_window_lines",
+        "max_cost_cents_per_day",
+        "max_cost_cents_per_job",
+        "job_timeout_seconds",
+        "radarr_translate_tag",
+        "sonarr_translate_tag",
+        "webhook_secret_set",
+    }
+    assert set(body.keys()) == expected
+    assert isinstance(body["webhook_secret_set"], bool)
+    # Sensible defaults from server.config.Settings — types match.
+    assert isinstance(body["reading_rate_cps"], int)
+    assert isinstance(body["max_concurrent"], int)
+    assert isinstance(body["llm_provider"], str)
+
+
+def test_config_never_returns_secrets(client, monkeypatch):
+    # Even when secrets ARE configured, the endpoint must only expose the boolean.
+    monkeypatch.setattr("server.main.settings.webhook_secret", "super-secret-value")
+    monkeypatch.setattr("server.main.settings.anthropic_api_key", "sk-ant-leak-me")
+    monkeypatch.setattr("server.main.settings.openai_api_key", "sk-leak-me-too")
+    r = client.get("/config")
+    assert r.status_code == 200
+    body = r.json()
+    # Boolean reflects truthiness without exposing the value.
+    assert body["webhook_secret_set"] is True
+    # Defensive: no secret-named keys anywhere in the response.
+    forbidden_keys = {"webhook_secret", "anthropic_api_key", "openai_api_key", "api_key"}
+    assert forbidden_keys.isdisjoint(body.keys())
+    # Defensive: no secret values present anywhere in the serialized response.
+    blob = r.text
+    assert "super-secret-value" not in blob
+    assert "sk-ant-leak-me" not in blob
+    assert "sk-leak-me-too" not in blob
+
+
+def test_config_webhook_secret_set_false_when_unset(client, monkeypatch):
+    monkeypatch.setattr("server.main.settings.webhook_secret", None)
+    r = client.get("/config")
+    assert r.status_code == 200
+    assert r.json()["webhook_secret_set"] is False
