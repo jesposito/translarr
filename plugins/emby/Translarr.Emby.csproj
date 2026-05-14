@@ -10,7 +10,7 @@
     -->
     <TargetFramework>netstandard2.0</TargetFramework>
     <LangVersion>latest</LangVersion>
-    <Nullable>enable</Nullable>
+    <Nullable>disable</Nullable>
     <GenerateDocumentationFile>false</GenerateDocumentationFile>
 
     <AssemblyName>Translarr</AssemblyName>
@@ -34,6 +34,33 @@
       (Emby Server 4.9 line, the line shipping on TheAnsible at deploy time).
     -->
     <PackageReference Include="MediaBrowser.Server.Core" Version="4.9.1.90" />
+    <!--
+      Newtonsoft.Json 13.0.3 is the netstandard2.0-safe JSON serializer.
+      System.Text.Json on netstandard2.0 has limited support for the
+      attribute set we use ([JsonProperty] etc), and Emby itself ships
+      Newtonsoft in-process so we avoid a second copy on the heap.
+      Pinned exact to keep ABI surprises out of plugin sideloading.
+    -->
+    <PackageReference Include="Newtonsoft.Json" Version="[13.0.3]" />
+    <!--
+      System.Memory is needed at compile time because several
+      MediaBrowser.Controller surfaces (BaseItem method overloads,
+      logger ReadOnlyMemory<char> overloads) reference ReadOnlyMemory<T>.
+      The compiler insists on the reference even when we never call
+      those overloads. Same workaround Jimaku uses. Pinned to 4.5.5
+      (latest netstandard2.0-compatible).
+    -->
+    <PackageReference Include="System.Memory" Version="4.6.3" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!--
+      Settings page HTML + JS ship as embedded resources. PluginPageInfo
+      references these by their full "Translarr.Emby.Web.<filename>" name,
+      built from the project's RootNamespace plus the relative path.
+    -->
+    <EmbeddedResource Include="Web\translarrconfig.html" />
+    <EmbeddedResource Include="Web\translarrconfig.js" />
   </ItemGroup>
 
 </Project>

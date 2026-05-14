@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Translarr</title>
+</head>
+<body>
+<div data-role="page" class="page type-interior pluginConfigurationPage translarrConfigurationPage" data-require="emby-input,emby-button,emby-select,emby-checkbox">
+    <div data-role="content">
+        <div class="content-primary">
+            <form class="translarrConfigForm">
+                <h1>Translarr</h1>
+                <p>Thin client that calls a Translarr server for subtitle translation. Configure the server URL, target language, and optional webhook secret below.</p>
+
+                <fieldset>
+                    <legend>Server connection</legend>
+
+                    <div class="inputContainer">
+                        <label for="translarrServerUrl">Translarr server URL</label>
+                        <input is="emby-input" type="url" id="translarrServerUrl" name="translarrServerUrl"
+                               placeholder="http://translarr:9000" required>
+                        <div class="fieldDescription">Base URL of the Translarr FastAPI server, no trailing slash.</div>
+                    </div>
+
+                    <div class="inputContainer">
+                        <label for="translarrTargetLanguage">Target language (ISO 639-1)</label>
+                        <input is="emby-input" type="text" id="translarrTargetLanguage" name="translarrTargetLanguage"
+                               placeholder="en" maxlength="8" required>
+                        <div class="fieldDescription">Two-letter language code Translarr should translate into.</div>
+                    </div>
+
+                    <div class="inputContainer">
+                        <label for="translarrWebhookSecret">Webhook secret (optional)</label>
+                        <input is="emby-input" type="password" id="translarrWebhookSecret" name="translarrWebhookSecret"
+                               autocomplete="off">
+                        <div class="fieldDescription">Must match <code>TRANSLARR_WEBHOOK_SECRET</code> on the server. Leave blank if the server is not protected.</div>
+                    </div>
+
+                    <div>
+                        <button is="emby-button" type="submit" class="raised button-submit block">
+                            <span>Save</span>
+                        </button>
+                        <button is="emby-button" type="button" id="translarrTestConnectionButton" class="raised block">
+                            <span>Test connection</span>
+                        </button>
+                    </div>
+
+                    <pre id="translarrTestConnectionResult" aria-live="polite"></pre>
+                </fieldset>
+            </form>
+
+            <form class="translarrTranslateForm">
+                <fieldset>
+                    <legend>Translate by item id</legend>
+                    <p>Trigger a one-off translation for an Emby item. Get the id from any item's <em>Edit metadata &rarr; More &rarr; Identifier</em>, or from the URL on the item page.</p>
+
+                    <div class="inputContainer">
+                        <label for="translarrItemId">Emby item id (GUID)</label>
+                        <input is="emby-input" type="text" id="translarrItemId" name="translarrItemId"
+                               placeholder="00000000-0000-0000-0000-000000000000" required>
+                    </div>
+
+                    <div class="inputContainer">
+                        <label for="translarrItemTargetLang">Target language override (optional)</label>
+                        <input is="emby-input" type="text" id="translarrItemTargetLang" name="translarrItemTargetLang"
+                               placeholder="en" maxlength="8">
+                        <div class="fieldDescription">Leave blank to use the default target language above.</div>
+                    </div>
+
+                    <div class="inputContainer">
+                        <label class="checkboxContainer">
+                            <input is="emby-checkbox" type="checkbox" id="translarrItemForce" name="translarrItemForce">
+                            <span>Force re-translate even if an output already exists</span>
+                        </label>
+                    </div>
+
+                    <div>
+                        <button is="emby-button" type="submit" class="raised block">
+                            <span>Translate this item</span>
+                        </button>
+                    </div>
+
+                    <pre id="translarrTranslateResult" aria-live="polite"></pre>
+                </fieldset>
+            </form>
+        </div>
+    </div>
+    <script src="translarrconfig.js"></script>
+</div>
+</body>
+</html>
