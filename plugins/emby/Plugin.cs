@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
+using System.Reflection;
 using MediaBrowser.Common.Configuration;
 using MediaBrowser.Common.Plugins;
 using MediaBrowser.Model.Plugins;
@@ -28,10 +30,105 @@ namespace Translarr.Emby
     /// </summary>
     public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     {
+        // One-shot guard so we don't double-register the resolver if the
+        // plugin assembly is loaded twice (defensive — Emby shouldn't do
+        // that, but if it ever does we don't want a second handler firing).
+        private static bool _resolverRegistered;
+        private static readonly object _resolverLock = new object();
+
+        static Plugin()
+        {
+            RegisterDependencyResolver();
+        }
+
         public Plugin(IApplicationPaths applicationPaths, IXmlSerializer xmlSerializer)
             : base(applicationPaths, xmlSerializer)
         {
             Instance = this;
+        }
+
+        /// <summary>
+        /// Emby's runtime probes <c>/system/</c> for assemblies; plugin
+        /// DLLs and their dependencies live in <c>/config/plugins/</c>
+        /// which is NOT on the probe path. Without this resolver, any
+        /// reference Translarr.dll makes to a sibling DLL (Newtonsoft.Json,
+        /// etc.) fails to load. SubZ and other Emby plugins use the same
+        /// pattern.
+        /// </summary>
+        private static void RegisterDependencyResolver()
+        {
+            lock (_resolverLock)
+            {
+                if (_resolverRegistered) return;
+                AppDomain.CurrentDomain.AssemblyResolve += ResolvePluginAssembly;
+                _resolverRegistered = true;
+            }
+        }
+
+        private static Assembly ResolvePluginAssembly(object sender, ResolveEventArgs args)
+        {
+            try
+            {
+                var name = new AssemblyName(args.Name).Name;
+                if (string.IsNullOrEmpty(name)) return null;
+
+                // Try several places the DLL could live. Emby may load plugins
+                // from byte[] (Assembly.Location is empty in that case), so we
+                // try the obvious typeof().Assembly.Location first, then
+                // fall back to a list of well-known plugin directories.
+                foreach (var dir in CandidatePluginDirs())
+                {
+                    if (string.IsNullOrEmpty(dir)) continue;
+                    var candidate = Path.Combine(dir, name + ".dll");
+                    if (File.Exists(candidate))
+                    {
+                        return Assembly.LoadFrom(candidate);
+                    }
+                }
+            }
+            catch
+            {
+                // Resolution failure is non-fatal — let the runtime carry on
+                // and raise its own FileNotFoundException at the call site.
+            }
+            return null;
+        }
+
+        private static IEnumerable<string> CandidatePluginDirs()
+        {
+            // 1. The DLL's own location (works when Emby loaded us from disk).
+            string ownLocation = null;
+            try { ownLocation = typeof(Plugin).Assembly.Location; }
+            catch { ownLocation = null; }
+            if (!string.IsNullOrEmpty(ownLocation))
+            {
+                yield return Path.GetDirectoryName(ownLocation);
+            }
+
+            // 2. Plugin.Instance's AssemblyFilePath (set after construction).
+            string instDir = null;
+            try
+            {
+                var instAsmPath = Instance?.AssemblyFilePath;
+                if (!string.IsNullOrEmpty(instAsmPath))
+                {
+                    instDir = Path.GetDirectoryName(instAsmPath);
+                }
+            }
+            catch { /* ignore */ }
+            if (!string.IsNullOrEmpty(instDir)) yield return instDir;
+
+            // 3. Well-known Emby plugin paths (Docker + bare-metal).
+            yield return "/config/plugins";
+            string localAppDataDir = null;
+            try
+            {
+                localAppDataDir = Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                    "emby-server", "plugins");
+            }
+            catch { /* ignore */ }
+            if (!string.IsNullOrEmpty(localAppDataDir)) yield return localAppDataDir;
         }
 
         /// <summary>

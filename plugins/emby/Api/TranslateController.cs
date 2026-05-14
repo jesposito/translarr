@@ -4,10 +4,54 @@ using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.Logging;
 using MediaBrowser.Model.Services;
-using Newtonsoft.Json;
 
 namespace Translarr.Emby.Api
 {
+    // Response POCOs returned from IService handlers. PLAIN PascalCase — no
+    // [JsonProperty] attributes — so ServiceStack.Text (Emby's IService
+    // serializer) can marshal them cleanly. The DTOs with snake_case
+    // [JsonProperty] annotations in Models.cs are used ONLY for
+    // (de)serialization to/from the Python Translarr server via Newtonsoft.
+    public sealed class HealthResult
+    {
+        public string Status { get; set; }
+        public string Version { get; set; }
+        public string LlmProvider { get; set; }
+        public string LlmModel { get; set; }
+    }
+
+    public sealed class JobResult
+    {
+        public string Id { get; set; }
+        public string State { get; set; }
+        public string MediaPath { get; set; }
+        public string TargetLang { get; set; }
+        public string OutputPath { get; set; }
+        public int Attempts { get; set; }
+        public int MaxAttempts { get; set; }
+        public int CostCents { get; set; }
+        public string Error { get; set; }
+    }
+
+    public sealed class EnqueueResultDto
+    {
+        public string Status { get; set; }
+        public string JobId { get; set; }
+        public string State { get; set; }
+    }
+
+    public sealed class CancelResult
+    {
+        public string Status { get; set; }
+        public string JobId { get; set; }
+    }
+
+    public sealed class ErrorResult
+    {
+        public int Status { get; set; }
+        public string Error { get; set; }
+    }
+
     // ------------------------------------------------------------------
     // Request DTOs. Emby's IService pattern dispatches on these — one
     // route + one verb per class. The DTO carries every parameter the
@@ -17,7 +61,7 @@ namespace Translarr.Emby.Api
 
     [Route("/Translarr/Translate", "POST",
         Summary = "Enqueue a Translarr translation job for an Emby item.")]
-    public class TranslateItemRequest : IReturn<EnqueueResult>
+    public class TranslateItemRequest : IReturn<EnqueueResultDto>
     {
         /// <summary>Emby item id (Guid). The controller resolves this to a file path.</summary>
         public string ItemId { get; set; }
@@ -31,7 +75,7 @@ namespace Translarr.Emby.Api
 
     [Route("/Translarr/Jobs/{JobId}", "GET",
         Summary = "Proxy GET /jobs/{id} to the Translarr server.")]
-    public class GetJobRequest : IReturn<JobInfo>
+    public class GetJobRequest : IReturn<JobResult>
     {
         public string JobId { get; set; }
     }
@@ -45,7 +89,7 @@ namespace Translarr.Emby.Api
 
     [Route("/Translarr/Health", "GET",
         Summary = "Proxy GET /health to the Translarr server.")]
-    public class HealthCheckRequest : IReturn<HealthResponse>
+    public class HealthCheckRequest : IReturn<HealthResult>
     {
     }
 
@@ -118,7 +162,12 @@ namespace Translarr.Emby.Api
             {
                 var result = await _client.EnqueueAsync(payload).ConfigureAwait(false);
                 _logger.Info("Translarr: enqueued job {0} for item {1} ({2})", result?.JobId, item.Id, item.Path);
-                return result;
+                return new EnqueueResultDto
+                {
+                    Status = result?.Status,
+                    JobId = result?.JobId,
+                    State = result?.State,
+                };
             }
             catch (TranslarrHttpException tex)
             {
@@ -139,7 +188,15 @@ namespace Translarr.Emby.Api
             }
             try
             {
-                return await _client.GetJobAsync(request.JobId).ConfigureAwait(false);
+                var j = await _client.GetJobAsync(request.JobId).ConfigureAwait(false);
+                if (j == null) return Error(404, "Job not found.");
+                return new JobResult
+                {
+                    Id = j.Id, State = j.State, MediaPath = j.MediaPath,
+                    TargetLang = j.TargetLang, OutputPath = j.OutputPath,
+                    Attempts = j.Attempts, MaxAttempts = j.MaxAttempts,
+                    CostCents = j.CostCents, Error = j.Error,
+                };
             }
             catch (TranslarrHttpException tex)
             {
@@ -161,7 +218,7 @@ namespace Translarr.Emby.Api
             try
             {
                 await _client.CancelJobAsync(request.JobId).ConfigureAwait(false);
-                return new { status = "cancelled", job_id = request.JobId };
+                return new CancelResult { Status = "cancelled", JobId = request.JobId };
             }
             catch (TranslarrHttpException tex)
             {
@@ -178,7 +235,13 @@ namespace Translarr.Emby.Api
         {
             try
             {
-                return await _client.HealthAsync().ConfigureAwait(false);
+                var h = await _client.HealthAsync().ConfigureAwait(false);
+                if (h == null) return Error(502, "Translarr server returned no body.");
+                return new HealthResult
+                {
+                    Status = h.Status, Version = h.Version,
+                    LlmProvider = h.LlmProvider, LlmModel = h.LlmModel,
+                };
             }
             catch (TranslarrHttpException tex)
             {
@@ -192,22 +255,13 @@ namespace Translarr.Emby.Api
         }
 
         /// <summary>
-        /// Helper that builds a JSON error payload. We deliberately return
-        /// an object (not throw) so the plugin never bubbles a raw 500 up
-        /// to Emby's host process.
+        /// Helper that builds an error payload. Returns object (not throws)
+        /// so the plugin never bubbles a raw 500 up to Emby's host process.
+        /// Plain POCO — no JsonProperty attributes — for ServiceStack.Text.
         /// </summary>
         private static object Error(int status, string message)
         {
-            return new ErrorPayload { Status = status, Error = message };
-        }
-
-        private class ErrorPayload
-        {
-            [JsonProperty("status")]
-            public int Status { get; set; }
-
-            [JsonProperty("error")]
-            public string Error { get; set; }
+            return new ErrorResult { Status = status, Error = message };
         }
     }
 }
