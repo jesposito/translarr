@@ -26,6 +26,14 @@ namespace Translarr.Emby.Configuration
             // with TRANSLARR_WEBHOOK_SECRET, the user must paste the
             // same value here so the plugin can sign its requests.
             WebhookSecret = string.Empty;
+
+            // Emby's container mounts media at /mnt; Translarr's at /media.
+            // When the plugin sends an Emby item path to Translarr, it
+            // applies this remap (simple prefix substitution). Format:
+            //   <emby-prefix>:<translarr-prefix>
+            // Empty/missing = no remap (pass the Emby path through unchanged).
+            // Default reflects the TheAnsible Unraid deploy documented in CLAUDE.md.
+            MediaPathRemap = "/mnt/:/media/";
         }
 
         /// <summary>
@@ -46,5 +54,13 @@ namespace Translarr.Emby.Configuration
         /// server side, or be empty on both sides.
         /// </summary>
         public string WebhookSecret { get; set; }
+
+        /// <summary>
+        /// Single-prefix path remap applied to Emby item paths before
+        /// shipping them to Translarr. Format: <c>from:to</c>. Used because
+        /// Emby's container exposes media under <c>/mnt</c> but Translarr's
+        /// under <c>/media</c>. Empty or malformed = no remap.
+        /// </summary>
+        public string MediaPathRemap { get; set; }
     }
 }

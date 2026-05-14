@@ -151,9 +151,15 @@ namespace Translarr.Emby.Api
                 ? request.TargetLang
                 : config?.TargetLanguage;
 
+            var translarrPath = ApplyPathRemap(item.Path, config?.MediaPathRemap);
+            if (!string.Equals(translarrPath, item.Path, StringComparison.Ordinal))
+            {
+                _logger.Info("Translarr: remapped {0} -> {1}", item.Path, translarrPath);
+            }
+
             var payload = new TranslateRequest
             {
-                MediaPath = item.Path,
+                MediaPath = translarrPath,
                 TargetLang = targetLang,
                 Force = request.Force,
             };
@@ -262,6 +268,26 @@ namespace Translarr.Emby.Api
         private static object Error(int status, string message)
         {
             return new ErrorResult { Status = status, Error = message };
+        }
+
+        /// <summary>
+        /// Applies a single-prefix remap to a path string. Format: "from:to".
+        /// Empty/malformed remap = identity. Only the FIRST occurrence at
+        /// the start of the path is replaced.
+        /// </summary>
+        internal static string ApplyPathRemap(string path, string remap)
+        {
+            if (string.IsNullOrEmpty(path) || string.IsNullOrWhiteSpace(remap))
+                return path;
+            var idx = remap.IndexOf(':');
+            if (idx <= 0 || idx >= remap.Length - 1) return path;
+            var from = remap.Substring(0, idx);
+            var to = remap.Substring(idx + 1);
+            if (path.StartsWith(from, StringComparison.Ordinal))
+            {
+                return to + path.Substring(from.Length);
+            }
+            return path;
         }
     }
 }
