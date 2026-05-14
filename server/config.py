@@ -32,6 +32,15 @@ class Settings(BaseSettings):
     radarr_translate_tag: str = "radarr_translate"
     sonarr_translate_tag: str = "sonarr_translate"
 
+    # Play-triggered translation. When TRUE, Translarr's /webhooks/emby endpoint
+    # responds to Emby `playback.start` events by enqueueing a translation for
+    # the now-playing item (subject to existing dedup + cost caps + the
+    # NoSourceSubtitles short-circuit). DEFAULT FALSE — explicit opt-in only.
+    # Rationale: playback events fire MUCH more often than library scans;
+    # accidentally leaving this on with a wide-open `max_cost_cents_per_day`
+    # could chew API budget. See TR-2yt.
+    auto_translate_on_playback: bool = False
+
     # Library refresh hooks — fire after a translation completes so Emby/Jellyfin
     # pick up the new .srt without a full scan. All optional; leave blank to skip.
     emby_url: str | None = None              # e.g. http://AnsibleMedia:8096

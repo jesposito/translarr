@@ -32,6 +32,19 @@ class AlreadyTranslated(Exception):
         self.path = path
 
 
+class NoSourceSubtitles(Exception):
+    """Raised when no embedded sub tracks AND no usable sidecar file exist.
+
+    Treated as a terminal skip by the queue worker — NOT a retry-eligible
+    failure. Retrying would re-run ffprobe + sidecar scan with the same
+    inputs and waste worker cycles.
+
+    The playback.start webhook path uses this signal to mark on-demand
+    triggers as $0 skips when there is genuinely nothing to translate
+    (e.g. user pressed Play on a file that already has only English subs).
+    """
+
+
 def _output_path(media: Path, target_lang: str) -> Path:
     """Translarr output filename: <basename>.<lang>.translarr.srt next to source media.
 
@@ -94,7 +107,7 @@ async def translate_media(req: TranslateRequest) -> TranslateResponse:
             # parsing.
             sidecar = _find_sidecar_subtitle(media, target_lang)
             if sidecar is None:
-                raise ValueError(
+                raise NoSourceSubtitles(
                     f"no_source_subtitles: {media.name}. Looked for embedded sub tracks "
                     f"(ffprobe found none) and for sidecar files next to the media "
                     f"({media.parent}). v0.8a+ will add provider-fetch fallback; "

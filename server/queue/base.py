@@ -92,7 +92,7 @@ class Queue(Protocol):
         self,
         job_id: str,
         *,
-        output_path: str,
+        output_path: str | None,
         cost_cents: int,
         tokens_in: int,
         tokens_out: int,
