@@ -7,8 +7,9 @@
   --bg-elevated: #161616;
   --bg-elevated-hover: #1c1c1c;
   --bg-input: #1f1f1f;
-  --border: #2a2a2a;
-  --border-strong: #404040;
+  --border: #2a2a2a;          /* decorative card seams only — sub-3:1, never use for inputs */
+  --border-input: #525252;    /* 4.21:1 vs --bg, meets WCAG 1.4.11 for inputs */
+  --border-strong: #5c5c5c;   /* 4.97:1 vs --bg, ghost-button outline */
 
   /* Text */
   --text: #ededed;
@@ -26,13 +27,13 @@
   --error: #f87171;
   --error-bg: #2a1414;
 
-  /* State pill semantics */
-  --state-queued: #6b7280;
+  /* State pill semantics — small-text contrast must beat 4.5:1 over pill bg */
+  --state-queued: #9ca3af;    /* was #6b7280 — bumped for 4.5:1 on pill bg */
   --state-running: #f59e0b;
   --state-retrying: #fbbf24;
   --state-done: #10b981;
   --state-failed: #f87171;
-  --state-cancelled: #707070;
+  --state-cancelled: #9ca3af; /* was #707070 — bumped for 4.5:1 on pill bg */
 
   /* Type */
   --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, system-ui, sans-serif;
@@ -72,8 +73,9 @@
     --bg-elevated: #fafafa;
     --bg-elevated-hover: #f4f4f5;
     --bg-input: #f4f4f5;
-    --border: #e4e4e7;
-    --border-strong: #a1a1aa;
+    --border: #e4e4e7;          /* decorative only */
+    --border-input: #71717a;    /* 4.83:1 vs #fff for input borders */
+    --border-strong: #52525b;   /* 7.73:1 vs #fff for ghost buttons */
 
     --text: #18181b;
     --text-muted: #52525b;
@@ -88,12 +90,12 @@
     --error: #b91c1c;
     --error-bg: #fef2f2;
 
-    --state-queued: #6b7280;
+    --state-queued: #4b5563;
     --state-running: #b45309;
     --state-retrying: #92400e;
     --state-done: #047857;
     --state-failed: #b91c1c;
-    --state-cancelled: #71717a;
+    --state-cancelled: #4b5563;
 
     color-scheme: light;
   }
@@ -116,6 +118,13 @@ body {
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+/* WCAG 2.4.11 Focus Not Obscured — ensure focused elements clear the
+   48px sticky topbar when in-page jumps or Tab-into-bottom scrolls them
+   under it. Matches the topbar height defined in +layout.svelte. */
+html {
+  scroll-padding-top: 64px;
 }
 
 h1,

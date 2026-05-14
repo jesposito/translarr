@@ -45,6 +45,12 @@
   let failedJobs = $state<Job[] | null>(null);
   let failuresOpen = $state(false);
   let loadError = $state<string | null>(null);
+  let lastLoadError = $state<string | null>(null);  // dedupe alert re-announce
+  // Transition-only live announcement string. SR users hear about state
+  // changes (queued -> running -> done), not the full live-jobs list on
+  // every 3s repoll.
+  let liveAnnouncement = $state('');
+  let prevLiveStates = $state<Map<string, JobState>>(new Map());
 
   let pollTimer: ReturnType<typeof setInterval> | null = null;
 
@@ -100,14 +106,44 @@
       const retrying = await fetchJSON<{ jobs: Job[] }>(
         '/jobs?state=retrying&limit=20'
       ).catch(() => ({ jobs: [] as Job[] }));
-      liveJobs = [...live.jobs, ...retrying.jobs].sort(
+      const newLive = [...live.jobs, ...retrying.jobs].sort(
         (a, b) => b.updated_at - a.updated_at
       );
+
+      // Build a transition-only announcement: include only jobs whose
+      // state CHANGED since the last poll, plus jobs that entered the
+      // done/failed lists (i.e. left "live"). Cap to first 3 to keep
+      // announcement short.
+      const transitions: string[] = [];
+      const nextStates = new Map<string, JobState>();
+      for (const j of newLive) nextStates.set(j.id, j.state);
+      for (const [id, prev] of prevLiveStates) {
+        const next = nextStates.get(id);
+        if (!next) {
+          // Job left the live list — find it in done/failed for context.
+          const completed = done.jobs.find((j) => j.id === id);
+          const failed = fail.jobs.find((j) => j.id === id);
+          if (completed) transitions.push(`Job ${id.slice(0, 8)} completed.`);
+          else if (failed) transitions.push(`Job ${id.slice(0, 8)} failed.`);
+        } else if (next !== prev) {
+          transitions.push(`Job ${id.slice(0, 8)} is now ${next}.`);
+        }
+      }
+      prevLiveStates = nextStates;
+      liveAnnouncement = transitions.slice(0, 3).join(' ');
+
+      liveJobs = newLive;
       doneJobs = done.jobs;
       failedJobs = fail.jobs;
       loadError = null;
+      lastLoadError = null;
     } catch (e) {
-      loadError = e instanceof Error ? e.message : String(e);
+      const msg = e instanceof Error ? e.message : String(e);
+      // Only re-trigger role="alert" when error text actually changes.
+      if (msg !== lastLoadError) {
+        loadError = msg;
+        lastLoadError = msg;
+      }
     }
   }
 
@@ -190,7 +226,9 @@
 
 <section aria-labelledby="live-heading">
   <h2 id="live-heading">Live jobs</h2>
-  <div class="live-region" role="status" aria-live="polite" aria-atomic="false">
+  <!-- Transition-only SR announcement (M1 from a11y audit). -->
+  <span class="sr-only" aria-live="polite" aria-atomic="true">{liveAnnouncement}</span>
+  <div class="live-region" aria-busy={liveJobs === null}>
     {#if liveJobs === null}
       <div class="card" aria-hidden="true">
         <div class="skeleton" style="width: 60%; height: 16px; margin-bottom: 12px;"></div>
@@ -200,7 +238,7 @@
       <div class="card empty">
         <p>No jobs running.</p>
         <p class="muted">
-          <a href="/translate">Queue something →</a>
+          <a href="/translate">Queue something<span aria-hidden="true"> →</span></a>
         </p>
       </div>
     {:else}
@@ -208,13 +246,13 @@
         {#each liveJobs as job (job.id)}
           <li class="card live-row">
             <a href={`/jobs/${job.id}`} class="live-link">
-              <span class="pill" data-state={job.state} aria-label="State: {job.state}">
+              <span class="pill" data-state={job.state}>
                 {job.state}
               </span>
               <span class="live-name" title={job.media_path}>
                 {basename(job.media_path)}
               </span>
-              <span class="live-lang mono">→ {job.target_lang}</span>
+              <span class="live-lang mono"><span aria-hidden="true">→ </span>{job.target_lang}</span>
               <span class="live-progress muted">
                 attempt {job.attempts}{job.max_attempts ? `/${job.max_attempts}` : ''}
               </span>
@@ -254,7 +292,7 @@
           {#each doneJobs as job (job.id)}
             <tr>
               <td>
-                <span class="pill" data-state={job.state} aria-label="State: {job.state}">
+                <span class="pill" data-state={job.state}>
                   {job.state}
                 </span>
               </td>
@@ -297,7 +335,7 @@
             <li class="card fail-row">
               <a href={`/jobs/${job.id}`} class="fail-link">
                 <div class="fail-head">
-                  <span class="pill" data-state="failed" aria-label="State: failed">failed</span>
+                  <span class="pill" data-state="failed">failed</span>
                   <span class="trunc mono" title={job.media_path}>
                     {basename(job.media_path)}
                   </span>

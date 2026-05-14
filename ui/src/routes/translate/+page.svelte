@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, tick } from 'svelte';
 
   interface Config {
     target_lang: string;
@@ -120,7 +120,11 @@
     e.preventDefault();
     if (submitting) return;
     if (!validate()) {
-      // Focus the first invalid field for keyboard users.
+      // M9: wait for Svelte to render the err <p> elements so the
+      // aria-describedby links resolve, THEN focus the first invalid
+      // field. Without `tick`, the SR can race the render and miss
+      // the description on first focus.
+      await tick();
       const firstInvalid = document.querySelector<HTMLElement>(
         '[aria-invalid="true"]'
       );
@@ -422,7 +426,7 @@
 
         <dt>State</dt>
         <dd>
-          <span class="pill" data-state="queued" aria-label="State: {successState}">
+          <span class="pill" data-state="queued">
             {successState}
           </span>
         </dd>
@@ -466,7 +470,7 @@
             <span class="recent-name" title={r.media_path}>
               {basename(r.media_path)}
             </span>
-            <span class="recent-lang mono">→ {r.target_lang}</span>
+            <span class="recent-lang mono"><span aria-hidden="true">→ </span>{r.target_lang}</span>
             <time class="recent-time muted" datetime={isoTime(r.submitted_at)}>
               {relTime(r.submitted_at)}
             </time>
@@ -528,12 +532,14 @@
   input[type="number"] {
     background: var(--bg-input);
     color: var(--text);
-    border: 1px solid var(--border);
+    /* C1: --border-input meets WCAG 1.4.11 (3:1 vs bg) — was --border. */
+    border: 1px solid var(--border-input);
     border-radius: var(--radius-sm);
     padding: var(--space-2) var(--space-3);
     font-family: inherit;
     font-size: var(--text-base);
-    min-height: 36px;
+    /* M7/quillr-mobile-equal-citizen: 44px hit area on mobile */
+    min-height: 44px;
     width: 100%;
     max-width: 480px;
     transition: border-color var(--dur) var(--ease);

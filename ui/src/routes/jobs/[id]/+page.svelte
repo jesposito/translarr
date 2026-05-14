@@ -32,10 +32,17 @@
   let job = $state<Job | null>(null);
   let health = $state<Health | null>(null);
   let loadError = $state<string | null>(null);
+  let lastLoadError = $state<string | null>(null);  // dedupe alert re-announce
   let toast = $state<{ kind: 'success' | 'error'; msg: string } | null>(null);
   let actionPending = $state(false);
   let pollTimer: ReturnType<typeof setInterval> | null = null;
   let toastTimer: ReturnType<typeof setTimeout> | null = null;
+  // Transition-only announcement string for SR users. Polling re-fetches
+  // the same job every 2s; the wrapping live region used to re-announce
+  // the entire Status card every tick. We now emit a one-line message
+  // ONLY when the state actually transitions (queued -> running -> done).
+  let stateAnnouncement = $state('');
+  let prevState = $state<JobState | null>(null);
 
   const jobId = $derived($page.params.id);
   const shortId = $derived(jobId ? jobId.slice(0, 8) : '');
@@ -70,11 +77,33 @@
         return;
       }
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      job = (await r.json()) as Job;
+      const next = (await r.json()) as Job;
+      // Emit a transition-only announcement so SR users only hear about
+      // ACTUAL state changes, not every 2s repoll.
+      if (prevState && prevState !== next.state) {
+        const verb = {
+          queued: 'queued',
+          running: 'now running',
+          retrying: `retrying (attempt ${next.attempts} of ${next.max_attempts})`,
+          done: 'completed',
+          failed: 'failed',
+          cancelled: 'cancelled',
+        }[next.state];
+        stateAnnouncement = `Job ${shortId} is ${verb}.`;
+      }
+      prevState = next.state;
+      job = next;
       loadError = null;
+      lastLoadError = null;
       if (terminal) stopPolling();
     } catch (e) {
-      loadError = e instanceof Error ? e.message : String(e);
+      const msg = e instanceof Error ? e.message : String(e);
+      // Only flip loadError when the error TEXT changes — prevents the
+      // role="alert" re-announcing the same network error every 2s tick.
+      if (msg !== lastLoadError) {
+        loadError = msg;
+        lastLoadError = msg;
+      }
     }
   }
 
@@ -190,9 +219,9 @@
 </p>
 
 <header class="page-head">
-  <h1>Job <span class="mono">{shortId}</span></h1>
+  <h1>Job <span class="mono" aria-label="Job ID {shortId}">{shortId}</span></h1>
   {#if job}
-    <span class="pill big" data-state={job.state} aria-label="State: {job.state}">
+    <span class="pill big" data-state={job.state}>
       {job.state}
     </span>
   {/if}
@@ -209,13 +238,11 @@
     <div class="skeleton" style="width: 80%; height: 12px;"></div>
   </div>
 {:else if job}
-  <section
-    class="card"
-    aria-labelledby="status-heading"
-    role="status"
-    aria-live="polite"
-    aria-atomic="false"
-  >
+  <!-- Narrow live region: announces ONLY the state transition, not the
+       entire Status card on every 2s repoll. WCAG 1.3.1 + APG live-region
+       guidance. -->
+  <span class="sr-only" aria-live="polite" aria-atomic="true">{stateAnnouncement}</span>
+  <section class="card" aria-labelledby="status-heading">
     <h2 id="status-heading">Status</h2>
     <dl class="kv">
       <dt>Media path</dt>
@@ -244,14 +271,22 @@
 
       <dt>Created</dt>
       <dd>
-        <time datetime={isoTime(job.created_at)}>{isoTime(job.created_at)}</time>
-        <span class="muted">· {relTime(job.created_at)}</span>
+        {#if job.created_at}
+          <time datetime={isoTime(job.created_at)}>{isoTime(job.created_at)}</time>
+          <span class="muted">· {relTime(job.created_at)}</span>
+        {:else}
+          —
+        {/if}
       </dd>
 
       <dt>Updated</dt>
       <dd>
-        <time datetime={isoTime(job.updated_at)}>{isoTime(job.updated_at)}</time>
-        <span class="muted">· {relTime(job.updated_at)}</span>
+        {#if job.updated_at}
+          <time datetime={isoTime(job.updated_at)}>{isoTime(job.updated_at)}</time>
+          <span class="muted">· {relTime(job.updated_at)}</span>
+        {:else}
+          —
+        {/if}
       </dd>
 
       <dt>Finished</dt>
@@ -288,6 +323,7 @@
           type="button"
           class="btn btn-ghost"
           onclick={() => copyPath(job!.output_path!)}
+          aria-label="Copy output path to clipboard"
         >Copy path</button>
       </div>
     </section>
@@ -453,8 +489,9 @@
 
   .toast {
     position: fixed;
-    bottom: var(--space-4);
-    right: var(--space-4);
+    /* M6: clear iOS home indicator + side bezel */
+    bottom: max(var(--space-4), env(safe-area-inset-bottom));
+    right: max(var(--space-4), env(safe-area-inset-right));
     background: var(--bg-elevated);
     border: 1px solid var(--border-strong);
     border-radius: var(--radius-sm);
@@ -476,8 +513,10 @@
     color: inherit;
     font-size: var(--text-base);
     cursor: pointer;
-    width: 24px;
-    height: 24px;
+    /* m9: 40x40 touch target — was 24x24 (below quillr-mobile 44 floor;
+       40x40 is the pragmatic compromise since the toast is dense). */
+    width: 40px;
+    height: 40px;
     display: inline-flex;
     align-items: center;
     justify-content: center;
