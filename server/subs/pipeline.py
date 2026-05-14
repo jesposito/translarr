@@ -109,7 +109,7 @@ async def translate_media(req: TranslateRequest) -> TranslateResponse:
                 source_lang=source_lang,
             )
 
-    subs = pysubs2.load(str(raw_path))
+    subs = _load_subs_with_encoding_fallback(raw_path)
     log.info("loaded_sub_file", events=len(subs.events))
 
     provider = get_provider()
@@ -201,6 +201,25 @@ def _strip_for_translation(text: str) -> str:
     return text.replace("\\N", " ").replace("\n", " ").strip()
 
 
+def _load_subs_with_encoding_fallback(path: Path):
+    """Try common subtitle encodings in order: UTF-8 (most modern files),
+    UTF-8-SIG (UTF-8 with BOM), CP1252 / Windows-1252 (legacy DVD rips),
+    Latin-1 (older European releases). Raises ValueError if all fail."""
+    last_err: Exception | None = None
+    for encoding in ("utf-8", "utf-8-sig", "cp1252", "latin-1"):
+        try:
+            subs = pysubs2.load(str(path), encoding=encoding)
+            if encoding != "utf-8":
+                log.info("sub_encoding_fallback", path=str(path), encoding=encoding)
+            return subs
+        except UnicodeDecodeError as e:
+            last_err = e
+            continue
+    raise ValueError(
+        f"could not decode {path.name} as utf-8/utf-8-sig/cp1252/latin-1: {last_err}"
+    )
+
+
 # ===== Sidecar subtitle discovery =========================================
 
 
@@ -216,6 +235,22 @@ class _SidecarSub:
 # "language flag" tokens Plex/Emby use (hi for hearing-impaired, sdh, forced).
 _LANG_FLAGS = {"hi", "sdh", "cc", "forced"}
 
+# Full English language names (Plex/Emby use these in nested Subtitles/ folders)
+# mapped to ISO 639-1. Covers the languages we're likely to translate from.
+_LANG_NAME_TO_CODE: dict[str, str] = {
+    "english": "en", "spanish": "es", "german": "de", "french": "fr",
+    "italian": "it", "portuguese": "pt", "dutch": "nl", "russian": "ru",
+    "polish": "pl", "swedish": "sv", "norwegian": "no", "danish": "da",
+    "finnish": "fi", "czech": "cs", "hungarian": "hu", "romanian": "ro",
+    "greek": "el", "turkish": "tr", "arabic": "ar", "hebrew": "he",
+    "japanese": "ja", "korean": "ko", "chinese": "zh", "vietnamese": "vi",
+    "thai": "th", "indonesian": "id", "malay": "ms", "hindi": "hi",
+    "bengali": "bn", "tamil": "ta", "telugu": "te", "ukrainian": "uk",
+    "bulgarian": "bg", "croatian": "hr", "serbian": "sr", "slovak": "sk",
+    "slovenian": "sl", "estonian": "et", "latvian": "lv", "lithuanian": "lt",
+    "icelandic": "is", "catalan": "ca",
+}
+
 
 def _find_sidecar_subtitle(media: Path, target_lang: str) -> _SidecarSub | None:
     """Look for a subtitle file next to `media` whose language is NOT target_lang.
@@ -230,26 +265,30 @@ def _find_sidecar_subtitle(media: Path, target_lang: str) -> _SidecarSub | None:
 
     Returns the best non-target-lang candidate, or None.
     """
-    parent = media.parent
-    basename = media.stem  # 'Adventure Time - S01E04 - Tree Trunks Bluray-720p'
+    basename = media.stem  # 'Movie' or 'Show.S01E04.WEB-DL'
     target_lower = target_lang.lower()
     target_alt = _to_iso639_2(target_lower)
 
+    # Scan media.parent AND a sibling Subtitles/ subdir (Plex convention).
+    scan_dirs: list[Path] = [media.parent]
+    subs_dir = media.parent / "Subtitles"
+    if subs_dir.is_dir():
+        scan_dirs.append(subs_dir)
+
     candidates: list[_SidecarSub] = []
-    for entry in parent.iterdir():
-        if not entry.is_file():
-            continue
-        if entry.suffix.lower() not in SUB_EXTENSIONS:
-            continue
-        # Must share the media's basename (case-sensitive).
-        entry_stem = entry.stem  # e.g., 'Adventure Time - S01E04 - Tree Trunks Bluray-720p.en.hi'
-        if not entry_stem.startswith(basename):
-            continue
-        tail = entry_stem[len(basename):].lstrip(".")
-        # tail = '' (unflagged), 'en' (single lang), 'en.hi' (lang + flag),
-        # 'en.sdh', 'forced', etc.
-        lang = _parse_sidecar_lang(tail)
-        candidates.append(_SidecarSub(path=entry, lang=lang))
+    for d in scan_dirs:
+        for entry in d.iterdir():
+            if not entry.is_file():
+                continue
+            if entry.suffix.lower() not in SUB_EXTENSIONS:
+                continue
+            # Must share the media's basename (case-sensitive).
+            entry_stem = entry.stem
+            if not entry_stem.startswith(basename):
+                continue
+            tail = entry_stem[len(basename):].lstrip(".")
+            lang = _parse_sidecar_lang(tail)
+            candidates.append(_SidecarSub(path=entry, lang=lang))
 
     if not candidates:
         return None
@@ -291,12 +330,15 @@ def _parse_sidecar_lang(tail: str) -> str | None:
     parts = [p for p in tail.split(".") if p]
     if not parts:
         return None
-    # If first part is a pure flag (forced/sdh/cc — NOT 'hi', which is both
-    # Hindi ISO 639-1 AND the hearing-impaired marker), reject.
     first = parts[0].lower()
+    # Pure flag (forced/sdh/cc — NOT 'hi', which is both Hindi ISO 639-1 AND
+    # the hearing-impaired marker) → no language information.
     if first in {"forced", "sdh", "cc"}:
         return None
-    # If first part length matches ISO 639-1 (2) or 639-2 (3), treat as lang.
+    # Full English language name (Plex/Emby Subtitles/ folder convention).
+    if first in _LANG_NAME_TO_CODE:
+        return _LANG_NAME_TO_CODE[first]
+    # ISO 639-1 (2 chars) or 639-2 (3 chars).
     if len(first) in (2, 3):
         return first
     return None

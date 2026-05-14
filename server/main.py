@@ -208,9 +208,18 @@ async def translate_sync(req: TranslateRequest) -> TranslateResponse:
 
     Prefer POST /translate + polling for new integrations.
     """
+    log.info(
+        "translate_sync_request",
+        media_path=str(req.media_path),
+        source_track_index=req.source_track_index,
+        source_lang=req.source_lang,
+        target_lang=req.target_lang,
+        force=req.force,
+    )
     try:
         return await translate_media(req)
     except FileNotFoundError as e:
+        log.warning("translate_sync_file_not_found", media_path=str(req.media_path), error=str(e))
         raise HTTPException(status_code=404, detail=str(e)) from e
     except AlreadyTranslated as e:
         # Existing output is fine — return its metadata via TranslateResponse
@@ -234,6 +243,7 @@ async def translate_sync(req: TranslateRequest) -> TranslateResponse:
     except TimeoutError as e:
         raise HTTPException(status_code=504, detail=str(e)) from e
     except ValueError as e:
+        log.warning("translate_sync_value_error", media_path=str(req.media_path), error=str(e))
         raise HTTPException(status_code=400, detail=str(e)) from e
 
 
