@@ -165,6 +165,10 @@ async def get_config() -> dict:
         "sonarr_translate_tag": settings.sonarr_translate_tag,
         "webhook_secret_set": bool(settings.webhook_secret),
         "auto_translate_on_playback": settings.auto_translate_on_playback,
+        "ntfy_url_set": bool(settings.ntfy_url),
+        "ntfy_on_success": settings.ntfy_on_success,
+        "ntfy_on_failure": settings.ntfy_on_failure,
+        "ntfy_on_skip": settings.ntfy_on_skip,
     }
 
 

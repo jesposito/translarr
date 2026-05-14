@@ -104,6 +104,33 @@ def test_playback_no_path_returns_no_path(client, monkeypatch):
     assert total == 0
 
 
+def test_playback_skips_stream_url(client, monkeypatch):
+    """Live TV / IPTV / HDHomeRun paths are URLs, not files. Reject early."""
+    monkeypatch.setattr(settings, "auto_translate_on_playback", True)
+    for stream in (
+        "http://192.168.1.50:6968/auto/v123",
+        "https://example.com/playlist.m3u8",
+        "rtsp://camera.local/stream",
+        "hdhomerun://hdhr/tuner0",
+    ):
+        resp = client.post("/webhooks/emby", json=_playback_payload(stream))
+        assert resp.status_code == 200, stream
+        assert resp.json()["status"] == "stream_skipped", stream
+    total, _ = get_queue().list_jobs(None, 50, 0)
+    assert total == 0
+
+
+def test_library_skips_stream_url(client, monkeypatch):
+    """Library scan with a stream URL payload (rare but possible) is rejected."""
+    monkeypatch.setattr(settings, "auto_translate_on_playback", False)
+    resp = client.post(
+        "/webhooks/emby",
+        json={"Event": "library.new", "Item": {"Path": "http://upstream/feed.m3u8"}},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "stream_skipped"
+
+
 def test_library_event_path_unchanged_by_playback_flag(client, monkeypatch):
     """Flipping the playback flag must not regress library-event handling."""
     monkeypatch.setattr(settings, "auto_translate_on_playback", False)

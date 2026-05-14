@@ -3,6 +3,16 @@ import json
 import shutil
 from pathlib import Path
 
+# Per-subprocess timeouts. The pipeline already has a top-level
+# `JOB_TIMEOUT_SECONDS` (default 30 min) for the whole translation, but
+# letting ffprobe/ffmpeg hang for that long ties up a worker on a single
+# bad file. These bounds catch wedged decodes early so the worker can
+# fail fast, surface a clear error, and move on. Raise the values if
+# you regularly translate multi-hour 4K HDR releases with embedded
+# Dolby Vision sub tracks — those can be legitimately slow to probe.
+FFPROBE_TIMEOUT_SECONDS = 30.0
+FFMPEG_EXTRACT_TIMEOUT_SECONDS = 120.0
+
 
 class TrackInfo:
     def __init__(self, index: int, codec: str, language: str | None, title: str | None) -> None:
@@ -30,7 +40,16 @@ async def list_sub_tracks(media_path: Path) -> list[TrackInfo]:
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
-    stdout, stderr = await proc.communicate()
+    try:
+        stdout, stderr = await asyncio.wait_for(
+            proc.communicate(), timeout=FFPROBE_TIMEOUT_SECONDS
+        )
+    except TimeoutError as e:
+        proc.kill()
+        await proc.wait()
+        raise TimeoutError(
+            f"ffprobe timed out after {FFPROBE_TIMEOUT_SECONDS:.0f}s on {media_path.name}"
+        ) from e
     if proc.returncode != 0:
         raise RuntimeError(f"ffprobe failed: {stderr.decode(errors='replace')}")
 
@@ -65,7 +84,17 @@ async def extract_track(media_path: Path, track_index: int, output_path: Path) -
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
-    _, stderr = await proc.communicate()
+    try:
+        _, stderr = await asyncio.wait_for(
+            proc.communicate(), timeout=FFMPEG_EXTRACT_TIMEOUT_SECONDS
+        )
+    except TimeoutError as e:
+        proc.kill()
+        await proc.wait()
+        raise TimeoutError(
+            f"ffmpeg extract timed out after {FFMPEG_EXTRACT_TIMEOUT_SECONDS:.0f}s "
+            f"on {media_path.name}:track{track_index}"
+        ) from e
     if proc.returncode != 0:
         raise RuntimeError(f"ffmpeg extract failed: {stderr.decode(errors='replace')}")
     return output_path

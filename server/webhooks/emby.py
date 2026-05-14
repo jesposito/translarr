@@ -29,9 +29,29 @@ router = APIRouter()
 log = structlog.get_logger()
 
 
+_STREAM_PREFIXES = (
+    "http://", "https://", "rtsp://", "rtmp://", "udp://", "rtp://",
+    "mms://", "hdhomerun://",
+)
+
+
 def _extract_path(payload: dict[str, Any]) -> str | None:
     item = payload.get("Item") or payload.get("item") or {}
     return item.get("Path") or item.get("path")
+
+
+def _is_translatable_path(path: str) -> bool:
+    """Reject paths that the pipeline cannot translate from disk.
+
+    Emby emits playback.start for Live TV and remote-streamed content
+    where the "Path" field is a URL (HDHomeRun tuner, RTSP camera, an
+    upstream HTTP IPTV feed, etc.). Those URLs have no on-disk file
+    to ffprobe, so enqueueing them produces a 404 several seconds
+    later. Filter them out at the webhook seam so the queue stays
+    clean.
+    """
+    lowered = path.lower()
+    return not lowered.startswith(_STREAM_PREFIXES)
 
 
 def _event_name(payload: dict[str, Any]) -> str:
@@ -54,6 +74,9 @@ async def emby(payload: dict[str, Any]) -> dict[str, str]:
         path = _extract_path(payload)
         if not path:
             return {"status": "no_path"}
+        if not _is_translatable_path(path):
+            log.info("playback_skip_stream", media_path=path)
+            return {"status": "stream_skipped"}
         job_id = await enqueue(Path(path))
         if job_id is None:
             log.info("playback_enqueue_dedup", media_path=path)
@@ -68,6 +91,9 @@ async def emby(payload: dict[str, Any]) -> dict[str, str]:
     path = _extract_path(payload)
     if not path:
         return {"status": "no_path"}
+    if not _is_translatable_path(path):
+        log.info("library_skip_stream", media_path=path)
+        return {"status": "stream_skipped"}
 
     await enqueue(Path(path))
     return {"status": "queued"}

@@ -41,6 +41,21 @@ class Settings(BaseSettings):
     # could chew API budget. See TR-2yt.
     auto_translate_on_playback: bool = False
 
+    # Push notifications. When NTFY_URL is set, Translarr POSTs a short
+    # message to it whenever a translation job reaches a terminal state.
+    # Works with ntfy.sh (self-hosted or public) and any HTTP endpoint
+    # that accepts a JSON body of {"title":..., "message":...}.
+    # Example: https://ntfy.sh/translarr-<random-token>
+    ntfy_url: str | None = None
+    # Granularity knobs — flip individually if "every event" is too noisy.
+    ntfy_on_success: bool = True
+    ntfy_on_failure: bool = True
+    # Skipped jobs (already-translated, no-source-subtitles) are quiet by
+    # default because they fire on every playback.start of an English-only
+    # item when AUTO_TRANSLATE_ON_PLAYBACK is on.
+    ntfy_on_skip: bool = False
+    ntfy_timeout_seconds: int = 10
+
     # Library refresh hooks — fire after a translation completes so Emby/Jellyfin
     # pick up the new .srt without a full scan. All optional; leave blank to skip.
     emby_url: str | None = None              # e.g. http://AnsibleMedia:8096
