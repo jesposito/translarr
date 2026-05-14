@@ -25,8 +25,17 @@ namespace Translarr.Emby.Subtitles
     /// v0.1.25 spike), but ISubtitleProvider IS supported, and the
     /// player's subtitle modal is exactly the right surface for our flow.
     /// </summary>
-    public class TranslarrSubtitleProvider : ISubtitleProvider
+    public class TranslarrSubtitleProvider : ISubtitleProvider, IHasOrder
     {
+        /// <summary>
+        /// IHasOrder.Order — Emby's subtitle search modal concatenates
+        /// provider results in ascending Order. OpenSubtitles is a core
+        /// provider at Order=0 by default. Setting ours to int.MinValue
+        /// forces our entries to render before any core/community provider.
+        /// </summary>
+        public int Order => int.MinValue;
+
+
         private readonly ILogger _logger;
         private readonly TranslarrHttpClient _client;
 
@@ -80,9 +89,16 @@ namespace Translarr.Emby.Subtitles
                 {
                     Id = id,
                     ProviderName = Name,
-                    Name = $"Translarr — translate to {lang.ToUpperInvariant()}",
+                    Name = $"★ Translarr — translate to {lang.ToUpperInvariant()}",
                     Format = "srt",
                     Language = lang,
+                    // Emby's subtitle search modal orders entries by
+                    // DownloadCount (descending), then CommunityRating.
+                    // Set both to high values so the Translarr offering
+                    // appears at the top of the list above OpenSubtitles
+                    // results (which rank by genuine download stats).
+                    DownloadCount = 999_999,
+                    CommunityRating = 10.0f,
                 });
             }
             catch (Exception ex)
