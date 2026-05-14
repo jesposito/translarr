@@ -7,13 +7,14 @@ import structlog
 from fastapi import FastAPI, HTTPException, Query, Response
 from fastapi.staticfiles import StaticFiles
 
-from server import __version__
+from server import __version__, settings_store
 from server.config import settings
 from server.cost_tracker import CostCapExceeded
 from server.models import HealthResponse, TranslateRequest, TranslateResponse
 from server.queue.base import Job, JobState, compute_dedup_key
 from server.queue.sqlite import get_queue
 from server.queue.worker import start_workers
+from server.settings_store import REGISTRY, SettingValidationError
 from server.subs.pipeline import AlreadyTranslated, translate_media
 from server.webhooks import emby, jellyfin, radarr, sonarr
 
@@ -23,9 +24,12 @@ log = structlog.get_logger()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Apply persistent DB overrides BEFORE workers start, so the live
+    # settings object reflects user-edited values from the prior session.
+    applied = settings_store.apply_overrides_to_settings()
     stop_event = asyncio.Event()
     worker_tasks = await start_workers(stop_event)
-    log.info("lifespan_startup", workers=len(worker_tasks))
+    log.info("lifespan_startup", workers=len(worker_tasks), settings_overrides=applied)
     try:
         yield
     finally:
@@ -144,32 +148,82 @@ async def get_stats() -> dict:
     return get_queue().aggregate_stats()
 
 
+def _serialize_field(key: str) -> dict:
+    """Per-field payload shape for GET /config and PATCH /config responses.
+
+    Secrets never leak their value — only a ``set`` boolean. Everything
+    else returns the effective live value plus its source (``db`` if
+    overridden, ``env`` otherwise) and metadata the Settings UI needs to
+    render a sane editor (type, min/max, choices, description, hint,
+    mutability, restart_required, default_label).
+    """
+    meta = REGISTRY[key]
+    value, source = settings_store.get_effective_with_source(key)
+    field: dict = {
+        "key": key,
+        "section": meta.section,
+        "type": meta.type,
+        "description": meta.description,
+        "hint": meta.hint,
+        "default_label": meta.default_label,
+        "mutable": meta.mutable,
+        "restart_required": meta.restart_required,
+        "source": source,
+        "updated_at": settings_store.get_override_timestamp(key),
+        "min": meta.min,
+        "max": meta.max,
+        "choices": meta.choices,
+        "is_secret": meta.is_secret,
+    }
+    if meta.is_secret:
+        field["set"] = bool(value)
+        # Never leak the actual secret.
+    else:
+        field["value"] = value
+    return field
+
+
 @app.get("/config")
 async def get_config() -> dict:
-    """Read-only, sanitized server configuration for the Settings page.
+    """Settings page payload — every registered key plus its metadata.
 
-    Never includes secret values (API keys, webhook secret). Booleans only
-    indicate whether a secret is configured. Edit `.env` and restart to change.
+    Secret fields (API keys, webhook secret) emit only ``set: bool``,
+    never the underlying value. Edit a field via PATCH /config; revert
+    to the env-baseline via DELETE /config/{key}.
     """
-    return {
-        "llm_provider": settings.llm_provider,
-        "llm_model": settings.llm_model,
-        "target_lang": settings.target_lang,
-        "reading_rate_cps": settings.reading_rate_cps,
-        "max_concurrent": settings.max_concurrent,
-        "context_window_lines": settings.context_window_lines,
-        "max_cost_cents_per_day": settings.max_cost_cents_per_day,
-        "max_cost_cents_per_job": settings.max_cost_cents_per_job,
-        "job_timeout_seconds": settings.job_timeout_seconds,
-        "radarr_translate_tag": settings.radarr_translate_tag,
-        "sonarr_translate_tag": settings.sonarr_translate_tag,
-        "webhook_secret_set": bool(settings.webhook_secret),
-        "auto_translate_on_playback": settings.auto_translate_on_playback,
-        "ntfy_url_set": bool(settings.ntfy_url),
-        "ntfy_on_success": settings.ntfy_on_success,
-        "ntfy_on_failure": settings.ntfy_on_failure,
-        "ntfy_on_skip": settings.ntfy_on_skip,
-    }
+    fields = [_serialize_field(k) for k in REGISTRY]
+    return {"version": __version__, "fields": fields}
+
+
+@app.patch("/config")
+async def patch_config(body: dict) -> dict:
+    """Apply a single setting override.
+
+    Body: ``{"key": "<name>", "value": <typed>}``. Returns the freshly
+    serialized field on success so the client can echo the
+    server-coerced value (e.g. trimmed string, parsed int) back into the
+    form.
+    """
+    key = body.get("key")
+    if not isinstance(key, str) or not key:
+        raise HTTPException(status_code=400, detail="missing_key")
+    if "value" not in body:
+        raise HTTPException(status_code=400, detail="missing_value")
+    try:
+        settings_store.set_override(key, body["value"])
+    except SettingValidationError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    return {"status": "ok", "field": _serialize_field(key)}
+
+
+@app.delete("/config/{key}")
+async def delete_config_override(key: str) -> dict:
+    """Drop a DB override; revert to the env-baseline value for ``key``."""
+    try:
+        settings_store.clear_override(key)
+    except SettingValidationError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    return {"status": "ok", "field": _serialize_field(key)}
 
 
 @app.get("/jobs/{job_id}")
