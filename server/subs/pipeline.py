@@ -1,5 +1,6 @@
 import asyncio
 import time
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -72,19 +73,41 @@ async def translate_media(req: TranslateRequest) -> TranslateResponse:
         raw_path = media
         log.info("direct_sub_file", path=str(media), source_lang=source_lang)
     else:
+        # Step A: try embedded subtitle tracks via ffprobe.
         tracks = await list_sub_tracks(media)
-        if not tracks:
-            raise ValueError(f"no_source_subtitles: {media.name}. v0.8a+ will add provider-fetch fallback; v0.9 adds Whisper-from-audio. For v0.1, add a subtitle track manually.")
 
-        track = pick_source_track(tracks, req.source_track_index, target_lang)
-        source_lang = req.source_lang or track.language or "auto"
-        log.info("picked_track", index=track.index, codec=track.codec, lang=source_lang)
+        if tracks:
+            track = pick_source_track(tracks, req.source_track_index, target_lang)
+            source_lang = req.source_lang or track.language or "auto"
+            log.info("picked_track", index=track.index, codec=track.codec, lang=source_lang)
 
-        workdir = settings.media_root / ".translarr" / media.stem
-        workdir.mkdir(parents=True, exist_ok=True)
-        ext = ".ass" if track.codec in {"ass", "ssa"} else ".srt"
-        raw_path = workdir / f"source.{track.index}{ext}"
-        await extract_track(media, track.index, raw_path)
+            workdir = settings.media_root / ".translarr" / media.stem
+            workdir.mkdir(parents=True, exist_ok=True)
+            ext = ".ass" if track.codec in {"ass", "ssa"} else ".srt"
+            raw_path = workdir / f"source.{track.index}{ext}"
+            await extract_track(media, track.index, raw_path)
+        else:
+            # Step B: fall back to sidecar subtitle files next to the media.
+            # Common patterns: <basename>.<lang>.srt, <basename>.<lang>.hi.srt,
+            # <basename>.srt. Pick the first one whose language tag is NOT the
+            # target_lang. Source-lang hint in the request wins over filename
+            # parsing.
+            sidecar = _find_sidecar_subtitle(media, target_lang)
+            if sidecar is None:
+                raise ValueError(
+                    f"no_source_subtitles: {media.name}. Looked for embedded sub tracks "
+                    f"(ffprobe found none) and for sidecar files next to the media "
+                    f"({media.parent}). v0.8a+ will add provider-fetch fallback; "
+                    f"v0.9 adds Whisper-from-audio. For v0.1, add a subtitle track manually."
+                )
+            raw_path = sidecar.path
+            source_lang = req.source_lang or sidecar.lang or "auto"
+            log.info(
+                "sidecar_sub_file",
+                path=str(raw_path),
+                detected_lang=sidecar.lang,
+                source_lang=source_lang,
+            )
 
     subs = pysubs2.load(str(raw_path))
     log.info("loaded_sub_file", events=len(subs.events))
@@ -176,3 +199,113 @@ async def translate_media(req: TranslateRequest) -> TranslateResponse:
 
 def _strip_for_translation(text: str) -> str:
     return text.replace("\\N", " ").replace("\n", " ").strip()
+
+
+# ===== Sidecar subtitle discovery =========================================
+
+
+@dataclass
+class _SidecarSub:
+    """A subtitle file living next to its media, e.g. movie.en.srt."""
+
+    path: Path
+    lang: str | None  # ISO 639-1 or -2 if detectable from filename, else None
+
+
+# Language hints that may appear in sidecar filenames. Includes the common
+# "language flag" tokens Plex/Emby use (hi for hearing-impaired, sdh, forced).
+_LANG_FLAGS = {"hi", "sdh", "cc", "forced"}
+
+
+def _find_sidecar_subtitle(media: Path, target_lang: str) -> _SidecarSub | None:
+    """Look for a subtitle file next to `media` whose language is NOT target_lang.
+
+    Filename patterns we recognize:
+      <basename>.srt                            (language unknown)
+      <basename>.<lang>.srt                     (e.g., .en.srt, .ru.srt)
+      <basename>.<lang>.<flag>.srt              (e.g., .en.hi.srt, .en.sdh.srt)
+
+    Where <lang> is ISO 639-1 (2 chars) or 639-2 (3 chars). The function
+    also accepts .ass / .ssa / .vtt / .sub extensions.
+
+    Returns the best non-target-lang candidate, or None.
+    """
+    parent = media.parent
+    basename = media.stem  # 'Adventure Time - S01E04 - Tree Trunks Bluray-720p'
+    target_lower = target_lang.lower()
+    target_alt = _to_iso639_2(target_lower)
+
+    candidates: list[_SidecarSub] = []
+    for entry in parent.iterdir():
+        if not entry.is_file():
+            continue
+        if entry.suffix.lower() not in SUB_EXTENSIONS:
+            continue
+        # Must share the media's basename (case-sensitive).
+        entry_stem = entry.stem  # e.g., 'Adventure Time - S01E04 - Tree Trunks Bluray-720p.en.hi'
+        if not entry_stem.startswith(basename):
+            continue
+        tail = entry_stem[len(basename):].lstrip(".")
+        # tail = '' (unflagged), 'en' (single lang), 'en.hi' (lang + flag),
+        # 'en.sdh', 'forced', etc.
+        lang = _parse_sidecar_lang(tail)
+        candidates.append(_SidecarSub(path=entry, lang=lang))
+
+    if not candidates:
+        return None
+
+    # Prefer candidates whose detected language is not the target language.
+    # Then prefer non-flag (plain language) over flagged (hi/sdh) variants.
+    def score(c: _SidecarSub) -> tuple:
+        lang = (c.lang or "").lower()
+        # Exclude target_lang (and its iso639-2 alias)
+        is_target = lang in (target_lower, target_alt)
+        # Flag-tagged files (HI/SDH/forced) — slight deprioritization
+        name_tail = c.path.stem[len(basename):].lstrip(".").lower()
+        has_flag = any(name_tail.endswith("." + f) or name_tail == f for f in _LANG_FLAGS)
+        # Lower tuple wins (sorted ascending)
+        return (1 if is_target else 0, 1 if has_flag else 0, str(c.path))
+
+    candidates.sort(key=score)
+    chosen = candidates[0]
+    # If only candidate is itself in target_lang, that's already-translated;
+    # don't pick it — caller will see None and raise the "no source" error.
+    if (chosen.lang or "").lower() in (target_lower, target_alt):
+        return None
+    return chosen
+
+
+def _parse_sidecar_lang(tail: str) -> str | None:
+    """Extract a language code from a sidecar filename tail.
+
+    Examples:
+      ''        -> None        (no lang flag)
+      'en'      -> 'en'
+      'en.hi'   -> 'en' (hi is a flag, not a language)
+      'hi'      -> 'hi' (only token: treat as language even though hi is also a flag)
+      'jpn'     -> 'jpn'
+      'forced'  -> None        (pure flag, no language)
+    """
+    if not tail:
+        return None
+    parts = [p for p in tail.split(".") if p]
+    if not parts:
+        return None
+    # If first part is a pure flag (forced/sdh/cc — NOT 'hi', which is both
+    # Hindi ISO 639-1 AND the hearing-impaired marker), reject.
+    first = parts[0].lower()
+    if first in {"forced", "sdh", "cc"}:
+        return None
+    # If first part length matches ISO 639-1 (2) or 639-2 (3), treat as lang.
+    if len(first) in (2, 3):
+        return first
+    return None
+
+
+def _to_iso639_2(code: str) -> str:
+    """Map common ISO 639-1 codes to 639-2 for cross-matching."""
+    return {
+        "en": "eng", "es": "spa", "de": "deu", "fr": "fra", "ja": "jpn",
+        "ko": "kor", "ru": "rus", "hi": "hin", "zh": "zho", "pt": "por",
+        "it": "ita", "nl": "nld", "pl": "pol", "tr": "tur", "ar": "ara",
+    }.get(code, code)
