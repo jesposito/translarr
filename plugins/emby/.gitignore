@@ -1,0 +1,21 @@
+# .NET build output
+bin/
+obj/
+
+# Restore output
+*.binlog
+project.assets.json
+project.nuget.cache
+*.nuget.props
+*.nuget.targets
+
+# IDE
+.vs/
+.idea/
+*.user
+*.suo
+*.userprefs
+
+# OS
+.DS_Store
+Thumbs.db

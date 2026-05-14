@@ -1,0 +1,39 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!--
+      Emby plugin SDK is published as netstandard2.0 only (Emby Server 4.9.x
+      runs on .NET 8 internally, but plugins must target netstandard2.0 for
+      ABI compatibility with the SDK). Despite the bootstrap task naming
+      net8.0, the SDK reality wins: we target netstandard2.0 here. See
+      build.md for the explanation.
+    -->
+    <TargetFramework>netstandard2.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+
+    <AssemblyName>Translarr</AssemblyName>
+    <RootNamespace>Translarr.Emby</RootNamespace>
+
+    <!-- Tracks Translarr milestone v0.2. Bump on every plugin release. -->
+    <Version>0.2.0</Version>
+    <AssemblyVersion>0.2.0.0</AssemblyVersion>
+    <FileVersion>0.2.0.0</FileVersion>
+
+    <Product>Translarr Emby Plugin</Product>
+    <Description>Thin Emby plugin that calls the Translarr server for subtitle translation.</Description>
+    <Company>Translarr</Company>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!--
+      MediaBrowser.Server.Core is the official Emby plugin meta-package; it
+      transitively brings in MediaBrowser.Common, MediaBrowser.Controller,
+      and MediaBrowser.Model at compatible versions. Pinned to 4.9.1.90
+      (Emby Server 4.9 line, the line shipping on TheAnsible at deploy time).
+    -->
+    <PackageReference Include="MediaBrowser.Server.Core" Version="4.9.1.90" />
+  </ItemGroup>
+
+</Project>
