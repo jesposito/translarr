@@ -92,7 +92,7 @@ translarr/
 | Version | Scope | Status |
 |---------|-------|--------|
 | v0.1 | Server brain: webhooks, LLM router, sub pipeline, reading-rate, tests | Scaffolded 2026-05-14 |
-| v0.2 | Emby plugin (C#): context menu, settings, scheduled task | Next |
+| v0.2 | Emby plugin (C#): scheduled task + REST controller + settings page (NO context menu — Emby SDK constraint per v0.1.25 spike) | Next |
 | v0.3 | Jellyfin plugin (C#): port of v0.2 | After v0.2 |
 | v0.4 | Critic pass + audio-grounded correction + glossary persistence (SQLite) | After v0.3 |
 | v0.5 | Persistent queue, per-show auto-translate flags | After v0.4 |
