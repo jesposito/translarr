@@ -1,7 +1,5 @@
 from pathlib import Path
 
-import pytest
-
 from server.subs.pipeline import _backup_existing, _output_path
 
 

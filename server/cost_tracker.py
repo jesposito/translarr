@@ -5,7 +5,7 @@ v0.1.5 will replace this with a SQLite `daily_usage` table so counters survive r
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import structlog
 
@@ -17,7 +17,7 @@ class CostCapExceeded(RuntimeError):
 
 
 def _today() -> str:
-    return datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    return datetime.now(UTC).strftime("%Y-%m-%d")
 
 
 def _try_db_conn():

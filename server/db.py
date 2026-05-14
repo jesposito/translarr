@@ -11,8 +11,6 @@ from pathlib import Path
 
 import structlog
 
-from server.config import settings
-
 log = structlog.get_logger()
 
 
@@ -24,10 +22,7 @@ def _db_path() -> Path:
     import os
 
     base = os.environ.get("TRANSLARR_DATA_DIR")
-    if base:
-        root = Path(base)
-    else:
-        root = Path.cwd() / "data"
+    root = Path(base) if base else Path.cwd() / "data"
     root.mkdir(parents=True, exist_ok=True)
     return root / "translarr.db"
 

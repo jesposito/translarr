@@ -6,13 +6,14 @@ v0.1.5: single-process, multiple asyncio worker tasks. v0.6+ may move to multi-p
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from pathlib import Path
 
 import structlog
 
 from server.config import settings
 from server.models import TranslateRequest
-from server.queue.base import Job, JobState
+from server.queue.base import Job
 from server.queue.sqlite import get_queue
 
 log = structlog.get_logger()
@@ -74,10 +75,8 @@ async def worker_loop(stop_event: asyncio.Event, worker_id: int) -> None:
             await asyncio.sleep(_POLL_INTERVAL_SECONDS * 2)
             continue
         if job is None:
-            try:
+            with contextlib.suppress(asyncio.TimeoutError):
                 await asyncio.wait_for(stop_event.wait(), timeout=_POLL_INTERVAL_SECONDS)
-            except asyncio.TimeoutError:
-                pass
             continue
         log.info("worker_claimed", worker_id=worker_id, job_id=job.id)
         await _run_job(job)

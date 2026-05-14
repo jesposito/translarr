@@ -1,6 +1,6 @@
 import asyncio
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pysubs2
@@ -38,7 +38,7 @@ def _output_path(media: Path, target_lang: str) -> Path:
 
 
 def _backup_existing(path: Path) -> Path:
-    ts = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    ts = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
     backup = path.with_suffix(f".{ts}.bak.srt")
     path.rename(backup)
     return backup
@@ -118,7 +118,7 @@ async def translate_media(req: TranslateRequest) -> TranslateResponse:
 
     try:
         await asyncio.wait_for(_run_with_timeout(), timeout=settings.job_timeout_seconds)
-    except asyncio.TimeoutError as e:
+    except TimeoutError as e:
         raise TimeoutError(
             f"job_timeout: exceeded {settings.job_timeout_seconds}s before completion"
         ) from e
