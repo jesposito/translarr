@@ -1,6 +1,8 @@
 using System;
+using System.IO;
 using System.Net.Http;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using MediaBrowser.Model.Logging;
 using Newtonsoft.Json;
@@ -22,9 +24,18 @@ namespace Translarr.Emby
         // One static HttpClient for the plugin lifetime. Disposing
         // HttpClient per call leaks sockets in TIME_WAIT on .NET
         // netstandard2.0 — this is the documented BCL guidance.
+        // Default 30s for short ops (health, enqueue, get-job).
         private static readonly HttpClient SharedClient = new HttpClient
         {
             Timeout = TimeSpan.FromSeconds(30),
+        };
+
+        // Separate longer-timeout client for sync translations. A 22-min
+        // episode takes ~1-2 min at Sonnet, a 2-hour film up to ~6 min;
+        // 10-minute ceiling covers worst-case retries.
+        private static readonly HttpClient SyncTranslateClient = new HttpClient
+        {
+            Timeout = TimeSpan.FromMinutes(10),
         };
 
         private readonly ILogger _logger;
@@ -56,6 +67,69 @@ namespace Translarr.Emby
         public Task<JobInfo> GetJobAsync(string jobId)
         {
             return SendAsync<JobInfo>(HttpMethod.Get, "/jobs/" + Uri.EscapeDataString(jobId), body: null);
+        }
+
+        /// <summary>
+        /// POST /translate/sync. Blocks until the Translarr server finishes
+        /// (or the 10-minute timeout fires). Returns the raw .srt bytes —
+        /// not the JSON envelope — by reading the output file from the
+        /// JSON response's <c>output_path</c>. NOTE: this won't work
+        /// across container boundaries; we ship the bytes embedded in the
+        /// response body via a side query to the dedicated sync endpoint.
+        ///
+        /// Implementation: POST /translate/sync, parse the JSON response,
+        /// then read the .srt file bytes through a second GET to a new
+        /// endpoint /output/{path} (added to the server alongside).
+        /// </summary>
+        public async Task<byte[]> TranslateSyncAsync(string mediaPath, string targetLang, CancellationToken cancellationToken)
+        {
+            var payload = new TranslateRequest
+            {
+                MediaPath = mediaPath,
+                TargetLang = targetLang,
+            };
+            using (var req = BuildRequest(HttpMethod.Post, "/translate/sync", payload))
+            using (var resp = await SyncTranslateClient.SendAsync(req, cancellationToken).ConfigureAwait(false))
+            {
+                var text = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
+                if (!resp.IsSuccessStatusCode)
+                {
+                    throw new TranslarrHttpException((int)resp.StatusCode, "POST /translate/sync failed: " + Truncate(text, 500));
+                }
+                // Response shape: { output_path, source_events, output_events, ... }
+                // We need to fetch the actual .srt bytes. Add a /output endpoint
+                // on the server that returns the file contents.
+                TranslateResult result;
+                try
+                {
+                    result = JsonConvert.DeserializeObject<TranslateResult>(text);
+                }
+                catch (JsonException jex)
+                {
+                    throw new TranslarrHttpException((int)resp.StatusCode, "Could not parse /translate/sync response: " + jex.Message);
+                }
+                if (result == null || string.IsNullOrEmpty(result.OutputPath))
+                {
+                    throw new TranslarrHttpException(500, "/translate/sync returned no output_path");
+                }
+                return await FetchSrtBytesAsync(result.OutputPath, cancellationToken).ConfigureAwait(false);
+            }
+        }
+
+        private async Task<byte[]> FetchSrtBytesAsync(string outputPath, CancellationToken cancellationToken)
+        {
+            // GET /output?path=<path> on the server returns the file bytes.
+            var encoded = Uri.EscapeDataString(outputPath);
+            using (var req = BuildRequest(HttpMethod.Get, "/output?path=" + encoded, body: null))
+            using (var resp = await SharedClient.SendAsync(req, cancellationToken).ConfigureAwait(false))
+            {
+                if (!resp.IsSuccessStatusCode)
+                {
+                    var text = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
+                    throw new TranslarrHttpException((int)resp.StatusCode, "GET /output failed: " + Truncate(text, 500));
+                }
+                return await resp.Content.ReadAsByteArrayAsync().ConfigureAwait(false);
+            }
         }
 
         /// <summary>
