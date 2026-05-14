@@ -9,6 +9,7 @@ from typing import Any
 
 import structlog
 
+from server.config import settings
 from server.db import get_conn
 from server.queue.base import Job, JobState
 
@@ -283,6 +284,13 @@ class SQLiteQueue:
         for r in queue_rows:
             queue_counts[r["state"]] = int(r["c"])
 
+        # Headroom: % of daily cap spent. Lets the Dashboard surface a
+        # "78% of today's cap used" hint before the worker starts 429-ing
+        # mid-job. Computed server-side so the UI doesn't need to know
+        # the cap config.
+        cap = settings.max_cost_cents_per_day
+        budget_pct_used = (today_cost / cap * 100.0) if cap > 0 else 0.0
+
         return {
             "today": {
                 "date": today_str,
@@ -297,6 +305,12 @@ class SQLiteQueue:
                 "jobs_count": int(all_time_row["total"] or 0),
             },
             "queue": queue_counts,
+            "budget": {
+                "daily_cap_cents": cap,
+                "spent_cents": today_cost,
+                "remaining_cents": max(0, cap - today_cost),
+                "pct_used": round(budget_pct_used, 1),
+            },
         }
 
     def reset_orphaned_running_jobs(self) -> int:

@@ -252,6 +252,39 @@ async def translate_sync(req: TranslateRequest) -> TranslateResponse:
         raise HTTPException(status_code=400, detail=str(e)) from e
 
 
+@app.post("/test/ntfy")
+async def test_ntfy() -> dict:
+    """Fire a sample push notification to verify the user's NTFY_URL works.
+
+    Used by the Settings page "Send test notification" button so the user
+    can confirm their topic/server config without queueing a real
+    translation. Reports the result synchronously so the UI can show
+    success or the underlying HTTP failure inline.
+    """
+    if not settings.ntfy_url:
+        raise HTTPException(status_code=400, detail="ntfy_not_configured")
+    import httpx
+    try:
+        async with httpx.AsyncClient(timeout=settings.ntfy_timeout_seconds) as client:
+            resp = await client.post(
+                settings.ntfy_url,
+                content=b"This is a test push from your Translarr server. Wire is good.",
+                headers={
+                    "Title": "Translarr: test notification",
+                    "Priority": "3",
+                    "Tags": "test_tube",
+                },
+            )
+        if resp.status_code >= 400:
+            raise HTTPException(
+                status_code=502,
+                detail=f"ntfy returned HTTP {resp.status_code}: {resp.text[:200]}",
+            )
+        return {"status": "ok", "ntfy_response_status": resp.status_code}
+    except httpx.RequestError as e:
+        raise HTTPException(status_code=502, detail=f"ntfy request failed: {e}") from e
+
+
 @app.get("/output")
 async def get_output(path: str) -> Response:
     """Return the raw bytes of a translated subtitle file.

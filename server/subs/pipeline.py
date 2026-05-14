@@ -163,6 +163,31 @@ async def translate_media(req: TranslateRequest) -> TranslateResponse:
             f"job_timeout: exceeded {settings.job_timeout_seconds}s before completion"
         ) from e
 
+    # Reconcile LLM output count to source event count. The pipeline
+    # invariant (see /CLAUDE.md "Subtitle pipeline invariants") is that
+    # output_count == input_count. LLMs occasionally drop or merge
+    # adjacent lines; we pad with the original text (verbatim
+    # passthrough is safer than empty) or truncate as needed, then log
+    # the deviation so the critic pass (v0.4) can flag it.
+    expected = len(subs.events)
+    if len(translations) < expected:
+        log.warning(
+            "translation_undercount",
+            expected=expected,
+            got=len(translations),
+            padded=expected - len(translations),
+        )
+        for i in range(len(translations), expected):
+            translations.append(_strip_for_translation(subs.events[i].text))
+    elif len(translations) > expected:
+        log.warning(
+            "translation_overcount",
+            expected=expected,
+            got=len(translations),
+            truncated=len(translations) - expected,
+        )
+        del translations[expected:]
+
     events = [
         SubEvent(start_ms=ev.start, end_ms=ev.end, text=t, style=ev.style)
         for ev, t in zip(subs.events, translations, strict=True)

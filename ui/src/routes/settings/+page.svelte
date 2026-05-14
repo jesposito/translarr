@@ -22,6 +22,10 @@
     sonarr_translate_tag: string;
     webhook_secret_set: boolean;
     auto_translate_on_playback: boolean;
+    ntfy_url_set: boolean;
+    ntfy_on_success: boolean;
+    ntfy_on_failure: boolean;
+    ntfy_on_skip: boolean;
   }
 
   let health = $state<Health | null>(null);
@@ -30,6 +34,39 @@
   let configError = $state<string | null>(null);
   let testing = $state(false);
   let testResult = $state<string>('');
+  let ntfyTesting = $state(false);
+  let ntfyResult = $state<{ kind: 'ok' | 'err' | ''; msg: string }>({ kind: '', msg: '' });
+
+  async function sendNtfyTest(): Promise<void> {
+    if (ntfyTesting) return;
+    ntfyTesting = true;
+    ntfyResult = { kind: '', msg: 'Sending…' };
+    try {
+      const r = await fetch('/test/ntfy', { method: 'POST' });
+      const text = await r.text();
+      let data: { status?: string; detail?: string } = {};
+      try {
+        data = text ? JSON.parse(text) : {};
+      } catch {
+        // non-JSON body, leave empty
+      }
+      if (r.ok && data.status === 'ok') {
+        ntfyResult = { kind: 'ok', msg: 'Test push sent. Check your device.' };
+      } else {
+        ntfyResult = {
+          kind: 'err',
+          msg: data.detail || `HTTP ${r.status} — see server logs.`,
+        };
+      }
+    } catch (e) {
+      ntfyResult = {
+        kind: 'err',
+        msg: e instanceof Error ? e.message : String(e),
+      };
+    } finally {
+      ntfyTesting = false;
+    }
+  }
 
   // window.location.origin is only meaningful in the browser. We render an
   // em-dash placeholder during SSR/prerender so hydration matches.
@@ -253,6 +290,70 @@
       Defaults to <em>disabled</em> — set
       <code class="mono">AUTO_TRANSLATE_ON_PLAYBACK=true</code> in your
       <code class="mono">.env</code> and restart to opt in.
+    </p>
+  {:else if configError}
+    <p class="error-inline" role="alert">Couldn't load config.</p>
+  {:else}
+    <div class="skeleton" style="width: 60%; height: 16px;"></div>
+  {/if}
+</section>
+
+<section class="card" aria-labelledby="ntfy-heading">
+  <h2 id="ntfy-heading">Push notifications</h2>
+  {#if config}
+    <dl class="kv">
+      <dt>ntfy endpoint</dt>
+      <dd>
+        {#if config.ntfy_url_set}
+          <span class="indicator ok" aria-hidden="true"></span>
+          <span>Configured</span>
+          <span class="sr-only"> — push notifications endpoint</span>
+        {:else}
+          <span class="indicator pending" aria-hidden="true"></span>
+          <span>Not set</span>
+          <span class="sr-only"> — push notifications endpoint</span>
+        {/if}
+      </dd>
+
+      <dt>Notify on</dt>
+      <dd>
+        <span class="pill" data-state={config.ntfy_on_success ? 'done' : 'cancelled'}>
+          success {config.ntfy_on_success ? 'on' : 'off'}
+        </span>
+        <span class="pill" data-state={config.ntfy_on_failure ? 'failed' : 'cancelled'}>
+          failure {config.ntfy_on_failure ? 'on' : 'off'}
+        </span>
+        <span class="pill" data-state={config.ntfy_on_skip ? 'queued' : 'cancelled'}>
+          skip {config.ntfy_on_skip ? 'on' : 'off'}
+        </span>
+      </dd>
+    </dl>
+    <div class="row-actions">
+      <button
+        type="button"
+        class="btn btn-ghost"
+        onclick={sendNtfyTest}
+        disabled={!config.ntfy_url_set || ntfyTesting}
+      >
+        {ntfyTesting ? 'Sending…' : 'Send test notification'}
+      </button>
+      <span
+        class="test-result"
+        role={ntfyResult.kind === 'err' ? 'alert' : 'status'}
+        aria-live={ntfyResult.kind === 'err' ? 'assertive' : 'polite'}
+        aria-atomic="true"
+        class:error-inline={ntfyResult.kind === 'err'}
+      >{ntfyResult.msg}</span>
+    </div>
+    <p class="hint">
+      Translarr POSTs a short toast to <code class="mono">NTFY_URL</code>
+      after every terminal job state. Works with public ntfy.sh
+      (<code class="mono">https://ntfy.sh/&lt;random-topic&gt;</code>) or a
+      self-hosted endpoint. Use the test button to verify wiring without
+      queueing a real translation. Toggle categories with
+      <code class="mono">NTFY_ON_SUCCESS</code>,
+      <code class="mono">NTFY_ON_FAILURE</code>,
+      <code class="mono">NTFY_ON_SKIP</code>.
     </p>
   {:else if configError}
     <p class="error-inline" role="alert">Couldn't load config.</p>
