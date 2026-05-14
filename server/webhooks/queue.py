@@ -1,39 +1,42 @@
-"""Simple in-memory dedup queue. Future: swap for a persistent queue."""
+"""Webhook helper: enqueue a translation job into the SQLite queue.
 
-import asyncio
+v0.1.5 replaces the in-memory dedup set with SQLite-backed dedup via Queue.find_by_dedup.
+"""
+
+from __future__ import annotations
+
 from pathlib import Path
 
 import structlog
 
 from server.config import settings
-from server.models import TranslateRequest
-from server.subs.pipeline import translate_media
+from server.queue.base import Job, JobState, compute_dedup_key
+from server.queue.sqlite import get_queue
 
 log = structlog.get_logger()
 
 
-_seen: set[str] = set()
-_sem = asyncio.Semaphore(settings.max_concurrent)
+async def enqueue(path: Path, target_lang: str | None = None) -> str | None:
+    """Enqueue a translation job for the given media path.
 
+    Returns the job id, or None if a dedup hit silently skipped.
+    """
+    lang = target_lang or settings.target_lang
+    media_path = str(path)
+    dedup = compute_dedup_key(media_path, None, lang)
 
-def _key(path: Path) -> str:
-    return str(path)
+    q = get_queue()
+    existing = q.find_by_dedup(dedup)
+    if existing and existing.state in {JobState.QUEUED, JobState.RUNNING, JobState.RETRYING, JobState.DONE}:
+        log.info("webhook_dedup_skip", media_path=media_path, existing_job=existing.id, state=existing.state.value)
+        return None
 
-
-async def enqueue(path: Path) -> None:
-    k = _key(path)
-    if k in _seen:
-        log.info("dedup_skip", path=k)
-        return
-    _seen.add(k)
-
-    async def _run() -> None:
-        async with _sem:
-            try:
-                await translate_media(TranslateRequest(media_path=path))
-            except Exception as e:
-                log.exception("translate_failed", path=k, error=str(e))
-            finally:
-                _seen.discard(k)
-
-    asyncio.create_task(_run())
+    job = Job(
+        id="",
+        dedup_key=dedup,
+        media_path=media_path,
+        target_lang=lang,
+        state=JobState.QUEUED,
+    )
+    persisted = q.enqueue(job)
+    return persisted.id
