@@ -11,6 +11,7 @@ from pathlib import Path
 
 import structlog
 
+from server import notifications
 from server.config import settings
 from server.models import TranslateRequest
 from server.queue.base import Job
@@ -47,6 +48,12 @@ async def _run_job(job: Job) -> None:
             output_events=result.output_events,
         )
         log.info("job_done", job_id=job.id, output=str(result.output_path))
+        notifications.notify_success(
+            media_path=job.media_path,
+            target_lang=job.target_lang,
+            cost_cents=result.cost_cents,
+            duration_s=result.duration_seconds,
+        )
     except AlreadyTranslated as e:
         # Idempotent skip — mark done with existing output, no error.
         q.finish(
@@ -58,6 +65,11 @@ async def _run_job(job: Job) -> None:
             output_events=0,
         )
         log.info("job_skipped_already_translated", job_id=job.id, output=str(e.path))
+        notifications.notify_skip(
+            media_path=job.media_path,
+            target_lang=job.target_lang,
+            reason="already translated",
+        )
     except NoSourceSubtitles as e:
         # Terminal skip — retrying re-runs ffprobe with the same inputs and
         # cannot succeed. Mark done with $0 cost so playback.start triggers
@@ -71,9 +83,25 @@ async def _run_job(job: Job) -> None:
             output_events=0,
         )
         log.info("job_skipped_no_source_subtitles", job_id=job.id, reason=str(e))
+        notifications.notify_skip(
+            media_path=job.media_path,
+            target_lang=job.target_lang,
+            reason="no source subtitles",
+        )
     except Exception as e:
         log.exception("job_failed", job_id=job.id)
         q.mark_failed(job.id, f"{type(e).__name__}: {e}")
+        # Only fire ntfy on the FINAL failure (attempts exhausted),
+        # not on each retry — mark_failed itself decides retry vs
+        # terminal based on attempts < max_attempts, so re-check the
+        # row state here.
+        row = q.get(job.id)
+        if row is not None and row.state.value == "failed":
+            notifications.notify_failure(
+                media_path=job.media_path,
+                target_lang=job.target_lang,
+                error=f"{type(e).__name__}: {e}",
+            )
 
 
 async def worker_loop(stop_event: asyncio.Event, worker_id: int) -> None:
