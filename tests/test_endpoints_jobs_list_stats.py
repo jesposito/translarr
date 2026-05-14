@@ -174,53 +174,54 @@ def test_stats_queue_counts_match_enqueued(client):
 # --- /config (sanitized server configuration) ------------------------------
 
 
+def _fields_by_key(body: dict) -> dict[str, dict]:
+    return {f["key"]: f for f in body["fields"]}
+
+
 def test_config_returns_expected_keys(client):
     r = client.get("/config")
     assert r.status_code == 200
     body = r.json()
+    assert "version" in body
+    fields = _fields_by_key(body)
     expected = {
-        "llm_provider",
-        "llm_model",
-        "target_lang",
-        "reading_rate_cps",
-        "max_concurrent",
-        "context_window_lines",
-        "max_cost_cents_per_day",
-        "max_cost_cents_per_job",
-        "job_timeout_seconds",
-        "radarr_translate_tag",
-        "sonarr_translate_tag",
-        "webhook_secret_set",
-        "auto_translate_on_playback",
-        "ntfy_url_set",
-        "ntfy_on_success",
-        "ntfy_on_failure",
-        "ntfy_on_skip",
+        "llm_provider", "llm_model", "target_lang", "reading_rate_cps",
+        "max_concurrent", "context_window_lines", "max_cost_cents_per_day",
+        "max_cost_cents_per_job", "job_timeout_seconds",
+        "radarr_translate_tag", "sonarr_translate_tag", "webhook_secret",
+        "auto_translate_on_playback", "ntfy_url", "ntfy_on_success",
+        "ntfy_on_failure", "ntfy_on_skip", "emby_url", "emby_api_key",
+        "jellyfin_url", "jellyfin_api_key",
     }
-    assert set(body.keys()) == expected
-    assert isinstance(body["webhook_secret_set"], bool)
-    assert isinstance(body["auto_translate_on_playback"], bool)
-    assert isinstance(body["ntfy_url_set"], bool)
-    # Sensible defaults from server.config.Settings — types match.
-    assert isinstance(body["reading_rate_cps"], int)
-    assert isinstance(body["max_concurrent"], int)
-    assert isinstance(body["llm_provider"], str)
+    assert set(fields.keys()) == expected
+    # Each field carries the canonical metadata shape.
+    sample = fields["reading_rate_cps"]
+    for required in (
+        "section", "type", "description", "hint", "mutable",
+        "restart_required", "source", "default_label", "value",
+    ):
+        assert required in sample, f"missing {required} on reading_rate_cps"
+    assert sample["type"] == "int"
+    assert sample["mutable"] is True
+    # Restart-only field marked correctly.
+    assert fields["llm_provider"]["mutable"] is False
+    assert fields["llm_provider"]["restart_required"] is True
 
 
 def test_config_never_returns_secrets(client, monkeypatch):
-    # Even when secrets ARE configured, the endpoint must only expose the boolean.
+    """Secrets emit a `set: bool` flag, never the value or any key
+    matching a secret-y name."""
     monkeypatch.setattr("server.main.settings.webhook_secret", "super-secret-value")
     monkeypatch.setattr("server.main.settings.anthropic_api_key", "sk-ant-leak-me")
     monkeypatch.setattr("server.main.settings.openai_api_key", "sk-leak-me-too")
     r = client.get("/config")
     assert r.status_code == 200
-    body = r.json()
-    # Boolean reflects truthiness without exposing the value.
-    assert body["webhook_secret_set"] is True
-    # Defensive: no secret-named keys anywhere in the response.
-    forbidden_keys = {"webhook_secret", "anthropic_api_key", "openai_api_key", "api_key"}
-    assert forbidden_keys.isdisjoint(body.keys())
-    # Defensive: no secret values present anywhere in the serialized response.
+    fields = _fields_by_key(r.json())
+    # Webhook secret is in the registry as a secret — emits `set` not `value`.
+    assert fields["webhook_secret"]["is_secret"] is True
+    assert fields["webhook_secret"]["set"] is True
+    assert "value" not in fields["webhook_secret"]
+    # Defensive: literal secret strings never appear in the response.
     blob = r.text
     assert "super-secret-value" not in blob
     assert "sk-ant-leak-me" not in blob
@@ -229,6 +230,5 @@ def test_config_never_returns_secrets(client, monkeypatch):
 
 def test_config_webhook_secret_set_false_when_unset(client, monkeypatch):
     monkeypatch.setattr("server.main.settings.webhook_secret", None)
-    r = client.get("/config")
-    assert r.status_code == 200
-    assert r.json()["webhook_secret_set"] is False
+    fields = _fields_by_key(client.get("/config").json())
+    assert fields["webhook_secret"]["set"] is False

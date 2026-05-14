@@ -96,8 +96,27 @@ def _m001_initial(conn: sqlite3.Connection) -> None:
         conn.execute(stmt)
 
 
+def _m002_app_settings(conn: sqlite3.Connection) -> None:
+    """v0.6.5: app_settings table for runtime-mutable config overrides.
+
+    Each row is a single key whose value overrides the env-baseline in
+    server.config.settings. Stored as JSON text so int/bool/string all
+    round-trip without per-type columns.
+    """
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS app_settings (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL,
+            updated_at INTEGER NOT NULL
+        )
+        """
+    )
+
+
 MIGRATIONS: list[tuple[int, str, callable]] = [
     (1, "initial schema (jobs + daily_usage)", _m001_initial),
+    (2, "app_settings (runtime config overrides)", _m002_app_settings),
 ]
 
 
