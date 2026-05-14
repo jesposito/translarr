@@ -144,6 +144,29 @@ async def get_stats() -> dict:
     return get_queue().aggregate_stats()
 
 
+@app.get("/config")
+async def get_config() -> dict:
+    """Read-only, sanitized server configuration for the Settings page.
+
+    Never includes secret values (API keys, webhook secret). Booleans only
+    indicate whether a secret is configured. Edit `.env` and restart to change.
+    """
+    return {
+        "llm_provider": settings.llm_provider,
+        "llm_model": settings.llm_model,
+        "target_lang": settings.target_lang,
+        "reading_rate_cps": settings.reading_rate_cps,
+        "max_concurrent": settings.max_concurrent,
+        "context_window_lines": settings.context_window_lines,
+        "max_cost_cents_per_day": settings.max_cost_cents_per_day,
+        "max_cost_cents_per_job": settings.max_cost_cents_per_job,
+        "job_timeout_seconds": settings.job_timeout_seconds,
+        "radarr_translate_tag": settings.radarr_translate_tag,
+        "sonarr_translate_tag": settings.sonarr_translate_tag,
+        "webhook_secret_set": bool(settings.webhook_secret),
+    }
+
+
 @app.get("/jobs/{job_id}")
 async def get_job(job_id: str) -> dict:
     job = get_queue().get(job_id)
