@@ -14,6 +14,7 @@ COPY pyproject.toml ./
 RUN pip install --no-cache-dir -e .
 
 COPY server/ ./server/
+COPY ui/dist/ ./ui/dist/
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1
