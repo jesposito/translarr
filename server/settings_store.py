@@ -266,6 +266,72 @@ REGISTRY: dict[str, SettingMeta] = {
 }
 
 
+# --- Presets ---------------------------------------------------------------
+
+PRESETS: dict[str, dict[str, Any]] = {
+    "quick_cheap": {
+        "label": "Quick & Cheap",
+        "description": "Fast translations at the lowest cost. Good enough for most content.",
+        "fields": {
+            "llm_model": "claude-haiku-4-5-20251001",
+            "reading_rate_cps": 17,
+            "context_window_lines": 5,
+            "max_concurrent": 1,
+        },
+    },
+    "balanced": {
+        "label": "Balanced",
+        "description": "Good quality at a reasonable price. Recommended for most users.",
+        "fields": {
+            "llm_model": "claude-sonnet-4-6",
+            "reading_rate_cps": 17,
+            "context_window_lines": 10,
+            "max_concurrent": 2,
+        },
+    },
+    "best_quality": {
+        "label": "Best Quality",
+        "description": "Maximum consistency and quality. Slower and more expensive.",
+        "fields": {
+            "llm_model": "claude-sonnet-4-6",
+            "reading_rate_cps": 15,
+            "context_window_lines": 20,
+            "max_concurrent": 2,
+        },
+    },
+    "local_free": {
+        "label": "Local & Free",
+        "description": "Uses Ollama on your hardware. Zero API cost. Quality depends on your model.",
+        "fields": {
+            "llm_provider": "ollama",
+            "llm_model": "qwen3:14b",
+            "reading_rate_cps": 17,
+            "context_window_lines": 10,
+            "max_concurrent": 1,
+        },
+    },
+}
+
+
+def apply_preset(preset_name: str) -> dict[str, Any]:
+    """Apply a named preset: writes overrides for every field in the preset.
+
+    Returns the preset metadata (label, description, applied fields).
+    Raises SettingValidationError if the preset name is unknown.
+    """
+    preset = PRESETS.get(preset_name)
+    if preset is None:
+        raise SettingValidationError(f"unknown_preset: {preset_name!r}")
+    applied = {}
+    for key, value in preset["fields"].items():
+        try:
+            set_override(key, value)
+            applied[key] = value
+        except SettingValidationError:
+            pass  # Skip immutable fields (e.g. llm_provider if it requires restart)
+    return {"preset": preset_name, "label": preset["label"], "applied": applied}
+
+
 # --- Storage ops ----------------------------------------------------------
 
 def _row_to_value(row_value: str, target_type: SettingType) -> Any:

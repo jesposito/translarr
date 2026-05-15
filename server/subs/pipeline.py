@@ -69,6 +69,7 @@ async def translate_media(req: TranslateRequest) -> TranslateResponse:
 
     target_lang = req.target_lang or settings.target_lang
     source_lang = req.source_lang or "auto"
+    detected_track_index: int | None = req.source_track_index
 
     # Output-collision policy (v0.1) — checked before any expensive work.
     out_path = _output_path(media, target_lang)
@@ -92,6 +93,7 @@ async def translate_media(req: TranslateRequest) -> TranslateResponse:
         if tracks:
             track = pick_source_track(tracks, req.source_track_index, target_lang)
             source_lang = req.source_lang or track.language or "auto"
+            detected_track_index = track.index
             log.info("picked_track", index=track.index, codec=track.codec, lang=source_lang)
 
             workdir = settings.media_root / ".translarr" / media.stem
@@ -232,6 +234,8 @@ async def translate_media(req: TranslateRequest) -> TranslateResponse:
         cost_cents=cost_cents,
         tokens_in=tokens_in_total,
         tokens_out=tokens_out_total,
+        source_lang=source_lang,
+        source_track_index=detected_track_index,
     )
 
 

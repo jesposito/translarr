@@ -21,6 +21,43 @@ log = structlog.get_logger()
 
 _POLL_INTERVAL_SECONDS = 1.0
 
+
+def _short_error(error: str) -> str:
+    """Strip ffmpeg noise, return a human-readable error message.
+
+    Preserves the full error in structured logs but surfaces the short
+    version in the job row so the UI shows something actionable.
+    """
+    # FileNotFoundError — already clean.
+    if error.startswith("media not found:"):
+        return error
+
+    # ffmpeg extract failure — strip the full ffmpeg version/config dump.
+    if "ffmpeg extract failed:" in error:
+        # The actual reason is usually on the last line or two.
+        lines = error.split("\n")
+        for line in reversed(lines):
+            line = line.strip()
+            if line and not line.startswith(("ffmpeg version", "built with", "configuration:", "lib", "Input #", "  ", "Stream #", "Duration:", "Chapter", "  Metadata", "Stream mapping")):
+                return f"ffmpeg: {line}"[:200]
+        return "ffmpeg extraction failed"
+
+    # ffprobe failure.
+    if "ffprobe failed:" in error or "ffprobe timed out" in error:
+        return error[:150]
+
+    # Cost cap.
+    if "cost_cap" in error.lower():
+        return error  # already human-readable
+
+    # LLM overload / retry exhaustion.
+    if "RetryError" in error and "Overloaded" in error:
+        return "LLM provider overloaded — all retry attempts failed. Will retry on next attempt."
+
+    # Generic — first line, truncated.
+    first_line = error.split("\n")[0]
+    return first_line[:200]
+
 # Module-level pool state so adjust_pool() can resize dynamically.
 _stop_event: asyncio.Event | None = None
 _tasks: list[asyncio.Task] = []
@@ -51,6 +88,8 @@ async def _run_job(job: Job) -> None:
             tokens_in=result.tokens_in,
             tokens_out=result.tokens_out,
             output_events=result.output_events,
+            source_lang=result.source_lang or None,
+            source_track_index=result.source_track_index,
         )
         log.info("job_done", job_id=job.id, output=str(result.output_path))
         notifications.notify_success(
@@ -114,7 +153,8 @@ async def _run_job(job: Job) -> None:
         )
     except Exception as e:
         log.exception("job_failed", job_id=job.id)
-        q.mark_failed(job.id, f"{type(e).__name__}: {e}")
+        full_error = f"{type(e).__name__}: {e}"
+        q.mark_failed(job.id, _short_error(full_error))
         # Only fire ntfy on the FINAL failure (attempts exhausted),
         # not on each retry — mark_failed itself decides retry vs
         # terminal based on attempts < max_attempts, so re-check the
