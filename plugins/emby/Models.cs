@@ -82,19 +82,19 @@ namespace Translarr.Emby
     }
 
     /// <summary>
-    /// Response body from <c>POST /translate/sync</c>. We only consume
-    /// the <c>output_path</c> field; the rest is informational.
+    /// Response body from <c>POST /translate/sync</c>. The sync endpoint
+    /// now returns immediately; shape mirrors POST /translate.
     /// </summary>
     public class TranslateResult
     {
-        [JsonProperty("output_path")]
+        [JsonProperty("status")]
+        public string Status { get; set; }
+
+        [JsonProperty("job_id")]
+        public string JobId { get; set; }
+
+        [JsonProperty("output_path", NullValueHandling = NullValueHandling.Ignore)]
         public string OutputPath { get; set; }
-
-        [JsonProperty("source_events")]
-        public int SourceEvents { get; set; }
-
-        [JsonProperty("output_events")]
-        public int OutputEvents { get; set; }
 
         [JsonProperty("cost_cents")]
         public int CostCents { get; set; }

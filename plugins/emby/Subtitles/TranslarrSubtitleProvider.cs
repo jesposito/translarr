@@ -109,9 +109,12 @@ namespace Translarr.Emby.Subtitles
         }
 
         /// <summary>
-        /// Called when the user clicks one of our search results. Triggers
-        /// a synchronous translation against the Translarr server, then
-        /// returns the .srt bytes for Emby to write next to the media.
+        /// Called when the user clicks one of our search results. Enqueues
+        /// a translation via the Translarr server's async queue, polls
+        /// until done, then returns the .srt bytes for Emby to write next
+        /// to the media. The server returns immediately from POST /translate
+        /// so the worker handles the heavy LLM work — we just poll for the
+        /// result here.
         /// </summary>
         public async Task<SubtitleResponse> GetSubtitles(string id, CancellationToken cancellationToken)
         {
