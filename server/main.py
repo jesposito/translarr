@@ -9,13 +9,19 @@ from fastapi.staticfiles import StaticFiles
 
 from server import __version__, settings_store
 from server.config import settings
-from server.cost_tracker import CostCapExceeded
+from server.cost_tracker import COST_TABLE_CENTS_PER_MTOK, CostCapExceeded
 from server.models import HealthResponse, TranslateRequest, TranslateResponse
 from server.queue.base import Job, JobState, compute_dedup_key
 from server.queue.sqlite import get_queue
 from server.queue.worker import start_workers
-from server.settings_store import REGISTRY, SettingValidationError
-from server.subs.pipeline import AlreadyTranslated, translate_media
+from server.settings_store import PRESETS, REGISTRY, SettingValidationError
+from server.subs.extract import _normalize_lang, extract_track, list_sub_tracks, pick_source_track
+from server.subs.pipeline import (
+    AlreadyTranslated,
+    _load_subs_with_encoding_fallback,
+    _output_path,
+    translate_media,
+)
 from server.webhooks import emby, jellyfin, radarr, sonarr
 
 logging.basicConfig(level=settings.log_level)
@@ -60,6 +66,95 @@ async def health() -> HealthResponse:
         llm_provider=settings.llm_provider,
         llm_model=settings.llm_model,
     )
+
+
+@app.post("/preflight")
+async def preflight(req: TranslateRequest) -> dict:
+    """Read-only cost estimate before committing to a translation.
+
+    Runs ffprobe to list subtitle tracks, picks the best source,
+    counts events, and returns a cost estimate for every known model.
+    No LLM call, no queue — purely informational.
+    """
+    media = settings.media_root / req.media_path if not req.media_path.is_absolute() else req.media_path
+    if not media.exists():
+        raise HTTPException(status_code=404, detail=f"media not found: {req.media_path}")
+
+    target_lang = req.target_lang or settings.target_lang
+
+    # Check for existing translation.
+    out_path = _output_path(media, target_lang)
+    already_done = out_path.exists()
+
+    # Detect subtitle tracks.
+    try:
+        tracks = await list_sub_tracks(media)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"ffprobe failed: {e}") from e
+
+    text_tracks = [t for t in tracks if t.is_text]
+    if not text_tracks:
+        return {
+            "media_path": str(req.media_path),
+            "target_lang": target_lang,
+            "tracks_found": len(tracks),
+            "text_tracks": 0,
+            "can_translate": False,
+            "reason": "no text-based subtitle tracks (only bitmap formats like PGS/VOBSUB)",
+            "already_done": already_done,
+            "estimates": [],
+        }
+
+    # Pick the source track.
+    try:
+        source = pick_source_track(tracks, req.source_track_index, target_lang)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+    source_lang = req.source_lang or source.language or "auto"
+    source_lang_display = _normalize_lang(source.language) or source.language or "unknown"
+
+    # Count events by extracting and parsing (fast — no LLM).
+    import shutil
+    import tempfile
+
+    workdir = Path(tempfile.mkdtemp())
+    try:
+        ext = ".ass" if source.codec in {"ass", "ssa"} else ".srt"
+        raw_path = workdir / f"source.{source.index}{ext}"
+        await extract_track(media, source.index, raw_path)
+        subs = _load_subs_with_encoding_fallback(raw_path)
+        event_count = len([e for e in subs.events if e.text.strip()])
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"extraction failed: {e}") from e
+    finally:
+        shutil.rmtree(workdir, ignore_errors=True)
+
+    # Estimate tokens and cost per model.
+    # Rough: avg subtitle line is 40 chars ≈ 10 tokens input, 12 tokens output.
+    est_tokens_in = event_count * 10 + 300  # 300 for system prompt per batch
+    est_tokens_out = event_count * 12
+    batches = (event_count + 29) // 30
+    est_tokens_in += batches * 200  # context window overhead
+
+    estimates = []
+    for model, (in_rate, out_rate) in COST_TABLE_CENTS_PER_MTOK.items():
+        cost = (est_tokens_in * in_rate + est_tokens_out * out_rate) // 1_000_000
+        estimates.append({"model": model, "cost_cents": cost, "cost_display": f"${cost / 100:.2f}"})
+
+    return {
+        "media_path": str(req.media_path),
+        "target_lang": target_lang,
+        "source_track_index": source.index,
+        "source_track_codec": source.codec,
+        "source_lang": source_lang,
+        "source_lang_display": source_lang_display,
+        "event_count": event_count,
+        "batches": batches,
+        "can_translate": True,
+        "already_done": already_done,
+        "estimates": estimates,
+    }
 
 
 @app.post("/translate")
@@ -195,6 +290,36 @@ async def get_config() -> dict:
     return {"version": __version__, "fields": fields}
 
 
+@app.get("/config/presets")
+async def get_presets() -> dict:
+    """Available translation presets — quick-start configurations."""
+    return {
+        "presets": [
+            {"id": k, "label": v["label"], "description": v["description"]}
+            for k, v in PRESETS.items()
+        ]
+    }
+
+
+@app.post("/config/preset")
+async def apply_preset(body: dict) -> dict:
+    """Apply a named preset (quick_cheap, balanced, best_quality, local_free).
+
+    Returns the freshly serialized fields for every key the preset touched.
+    """
+    name = body.get("preset")
+    if not name:
+        raise HTTPException(status_code=400, detail="missing preset name")
+    try:
+        from server.settings_store import apply_preset as _apply
+        result = _apply(name)
+    except SettingValidationError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    # Return fresh field data for every applied key.
+    fields = {k: _serialize_field(k) for k in result["applied"]}
+    return {"status": "ok", "preset": result, "fields": fields}
+
+
 @app.patch("/config")
 async def patch_config(body: dict) -> dict:
     """Apply a single setting override.
@@ -236,6 +361,8 @@ async def get_job(job_id: str) -> dict:
         "state": job.state.value,
         "media_path": job.media_path,
         "target_lang": job.target_lang,
+        "source_lang": job.source_lang,
+        "source_track_index": job.source_track_index,
         "output_path": job.output_path,
         "attempts": job.attempts,
         "max_attempts": job.max_attempts,

@@ -35,6 +35,8 @@ class TranslateResponse(BaseModel):
     cost_cents: int = 0
     tokens_in: int = 0
     tokens_out: int = 0
+    source_lang: str = ""  # Detected or provided source language (ISO code)
+    source_track_index: int | None = None  # Track index that was translated
     # Backwards-compat field — equals source_events for v0.1 consumers reading this name
     lines_translated: int = 0
 

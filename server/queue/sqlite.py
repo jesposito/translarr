@@ -179,9 +179,22 @@ class SQLiteQueue:
         tokens_in: int,
         tokens_out: int,
         output_events: int,
+        source_lang: str | None = None,
+        source_track_index: int | None = None,
     ) -> None:
         conn = get_conn()
         now = _now()
+        # Persist detected source info if provided (auto-detected from ffprobe).
+        if source_lang is not None:
+            conn.execute(
+                "UPDATE jobs SET source_lang=? WHERE id=? AND source_lang IS NULL",
+                (source_lang, job_id),
+            )
+        if source_track_index is not None:
+            conn.execute(
+                "UPDATE jobs SET source_track_index=? WHERE id=? AND source_track_index IS NULL",
+                (source_track_index, job_id),
+            )
         conn.execute(
             """
             UPDATE jobs SET

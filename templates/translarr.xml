@@ -1,0 +1,46 @@
+<?xml version="1.0"?>
+<Container>
+  <Name>Translarr</Name>
+  <Repository>jesposito/translarr</Repository>
+  <Registry>https://hub.docker.com/r/jesposito/translarr</Registry>
+  <Network>bridge</Network>
+  <Shell>sh</Shell>
+  <Privileged>false</Privileged>
+  <Support>https://github.com/jesposito/translarr/issues</Support>
+  <Project>https://github.com/jesposito/translarr</Project>
+  <Overview>
+Translarr translates subtitle tracks from the wrong language to your preferred language using AI. It plugs into Sonarr, Radarr, Emby, and Jellyfin via webhooks and drops translated .srt files next to your media.
+
+Features:
+- LLM-powered translation with context awareness (Anthropic, OpenAI, or local Ollama)
+- Automatic reading-rate adaptation for readable subtitles
+- Tag-based opt-in via Sonarr/Radarr — only translates what you tag
+- On-demand translation when you press Play (Emby)
+- Cost guards: daily and per-job spend caps
+- Push notifications via ntfy.sh
+- Editable settings with live updates — no container restart needed
+  </Overview>
+  <Category>MediaApp:Other</Category>
+  <WebUI>http://[IP]:[PORT:9100]</WebUI>
+  <TemplateURL>https://raw.githubusercontent.com/jesposito/translarr/main/templates/translarr.xml</TemplateURL>
+  <Icon>https://raw.githubusercontent.com/jesposito/translarr/main/templates/translarr.png</Icon>
+
+  <Config Name="WebUI Port" Target="9000" Default="9100" Mode="tcp" Description="Web UI and API port" Type="Port" Display="always" Required="true">9100</Config>
+  <Config Name="Media Library" Target="/media" Default="/mnt/user/media" Mode="rw" Description="Path to your media library (movies, TV shows)." Type="Path" Display="always" Required="true">/mnt/user/media</Config>
+  <Config Name="Config / Data" Target="/data" Default="/mnt/user/appdata/translarr" Mode="rw" Description="Persistent storage for database and settings." Type="Path" Display="always" Required="true">/mnt/user/appdata/translarr</Config>
+  <Config Name="LLM Provider" Target="LLM_PROVIDER" Default="anthropic" Description="anthropic, openai, or ollama" Type="Variable" Display="always" Required="true">anthropic</Config>
+  <Config Name="LLM Model" Target="LLM_MODEL" Default="claude-sonnet-4-6" Description="Model identifier" Type="Variable" Display="always" Required="false">claude-sonnet-4-6</Config>
+  <Config Name="Anthropic API Key" Target="ANTHROPIC_API_KEY" Default="" Description="Required for Anthropic provider" Type="Variable" Display="always" Required="false" Mask="true"></Config>
+  <Config Name="Target Language" Target="TARGET_LANG" Default="en" Description="ISO 639-1 code for target language" Type="Variable" Display="always" Required="false">en</Config>
+  <Config Name="Daily Cost Cap (cents)" Target="MAX_COST_CENTS_PER_DAY" Default="1000" Description="Max daily spend in cents (1000 = $10)" Type="Variable" Display="always" Required="false">1000</Config>
+  <Config Name="OpenAI API Key" Target="OPENAI_API_KEY" Default="" Description="Required for OpenAI provider" Type="Variable" Display="advanced" Required="false" Mask="true"></Config>
+  <Config Name="Per-Job Cost Cap (cents)" Target="MAX_COST_CENTS_PER_JOB" Default="500" Description="Max spend per translation (500 = $5)" Type="Variable" Display="advanced" Required="false">500</Config>
+  <Config Name="Max Concurrent Jobs" Target="MAX_CONCURRENT" Default="2" Description="Parallel translations" Type="Variable" Display="advanced" Required="false">2</Config>
+  <Config Name="Webhook Secret" Target="WEBHOOK_SECRET" Default="" Description="Shared secret for webhooks. Empty = no auth." Type="Variable" Display="advanced" Required="false" Mask="true"></Config>
+  <Config Name="Emby URL" Target="EMBY_URL" Default="" Description="e.g. http://192.168.1.100:8096" Type="Variable" Display="advanced" Required="false"></Config>
+  <Config Name="Emby API Key" Target="EMBY_API_KEY" Default="" Description="Emby API key" Type="Variable" Display="advanced" Required="false" Mask="true"></Config>
+  <Config Name="Jellyfin URL" Target="JELLYFIN_URL" Default="" Description="Jellyfin server URL" Type="Variable" Display="advanced" Required="false"></Config>
+  <Config Name="Jellyfin API Key" Target="JELLYFIN_API_KEY" Default="" Description="Jellyfin API key" Type="Variable" Display="advanced" Required="false" Mask="true"></Config>
+  <Config Name="ntfy URL" Target="NTFY_URL" Default="" Description="Push notification endpoint. Empty = off." Type="Variable" Display="advanced" Required="false"></Config>
+  <Config Name="Ollama Host" Target="OLLAMA_HOST" Default="http://ollama:11434" Description="Ollama server URL" Type="Variable" Display="advanced" Required="false">http://ollama:11434</Config>
+</Container>
