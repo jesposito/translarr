@@ -14,12 +14,55 @@ FFPROBE_TIMEOUT_SECONDS = 30.0
 FFMPEG_EXTRACT_TIMEOUT_SECONDS = 120.0
 
 
+# Text-based subtitle codecs that ffmpeg can extract to SRT/ASS.
+# Bitmap formats (PGS, VOBSUB, DVDSUB) require OCR and are not supported.
+TEXT_SUB_CODECS = {
+    "subrip", "srt", "ass", "ssa", "vtt", "webvtt",
+    "mov_text", "txt", "microdvd", "mpl2",
+}
+
+# ISO 639-2 → 639-1 mapping for the most common subtitle languages.
+_ISO_639_2_TO_1: dict[str, str] = {
+    "eng": "en", "spa": "es", "deu": "de", "ger": "de", "fra": "fr", "fre": "fr",
+    "ita": "it", "por": "pt", "nld": "nl", "dut": "nl", "rus": "ru", "pol": "pl",
+    "swe": "sv", "nor": "no", "nob": "no", "dan": "da", "fin": "fi", "ces": "cs",
+    "cze": "cs", "hun": "hu", "ron": "ro", "rum": "ro", "ell": "el", "gre": "el",
+    "tur": "tr", "ara": "ar", "heb": "he", "jpn": "ja", "kor": "ko",
+    "chi": "zh", "zho": "zh", "cmn": "zh", "vie": "vi", "tha": "th",
+    "ind": "id", "may": "ms", "msa": "ms", "hin": "hi", "ben": "bn",
+    "tam": "ta", "tel": "te", "ukr": "uk", "bul": "bg", "hrv": "hr",
+    "srp": "sr", "slk": "sk", "slv": "sl", "est": "et", "lav": "lv",
+    "lit": "lt", "isl": "is", "ice": "is", "cat": "ca", "tgl": "tl",
+}
+
+
+def _normalize_lang(lang: str | None) -> str | None:
+    """Normalize a language code to ISO 639-1 (2-letter) for comparison.
+
+    ffprobe reports ISO 639-2 (3-letter) codes like 'eng', 'chi', 'spa'.
+    Our settings use ISO 639-1 like 'en', 'zh', 'es'. Normalizing both
+    sides before comparing avoids the mismatch that caused the pipeline
+    to pick an English PGS track as "non-target".
+    """
+    if not lang:
+        return None
+    low = lang.strip().lower()
+    if len(low) == 2:
+        return low
+    return _ISO_639_2_TO_1.get(low, low)
+
+
 class TrackInfo:
     def __init__(self, index: int, codec: str, language: str | None, title: str | None) -> None:
         self.index = index
         self.codec = codec
         self.language = language
         self.title = title
+
+    @property
+    def is_text(self) -> bool:
+        """True if the codec is text-based (extractable to SRT/ASS)."""
+        return self.codec.lower() in TEXT_SUB_CODECS
 
     def __repr__(self) -> str:
         return f"TrackInfo(idx={self.index}, codec={self.codec}, lang={self.language})"
@@ -107,16 +150,31 @@ def pick_source_track(
 ) -> TrackInfo:
     """Pick which sub track to translate from.
 
-    Priority: explicit index > non-target-lang track > first track.
+    Filters out bitmap subtitle formats (PGS, VOBSUB) that can't be
+    extracted to text. Normalizes language codes to ISO 639-1 before
+    comparing so ``eng`` matches ``en``, ``chi`` matches ``zh``, etc.
+
+    Priority: explicit index > non-target-lang text track > first text track.
     """
     if not tracks:
         raise ValueError("no subtitle tracks found")
+
+    text_tracks = [t for t in tracks if t.is_text]
+    if not text_tracks:
+        raise ValueError(
+            "no text-based subtitle tracks found "
+            f"(only bitmap formats like PGS/VOBSUB in {len(tracks)} tracks)"
+        )
+
     if requested_index is not None:
-        for t in tracks:
+        for t in text_tracks:
             if t.index == requested_index:
                 return t
-        raise ValueError(f"track index {requested_index} not in file")
-    for t in tracks:
-        if t.language and t.language != target_lang:
+        raise ValueError(f"track index {requested_index} not in file (or is not a text track)")
+
+    target_norm = _normalize_lang(target_lang)
+    for t in text_tracks:
+        track_norm = _normalize_lang(t.language)
+        if track_norm and track_norm != target_norm:
             return t
-    return tracks[0]
+    return text_tracks[0]
