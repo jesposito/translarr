@@ -74,14 +74,41 @@ def test_set_override_coerces_string_input(client):
     assert isinstance(settings.reading_rate_cps, int)
 
 
-def test_set_override_rejects_immutable(client):
-    with pytest.raises(SettingValidationError, match="setting_immutable"):
-        set_override("llm_provider", "openai")
+def test_set_override_rejects_immutable():
+    """Fields that are genuinely immutable (none currently, but the gate stays tested)."""
+    # All registered fields are currently mutable. This test exercises the
+    # rejection path by temporarily flipping a field to immutable.
+    from server.settings_store import REGISTRY
+    original = REGISTRY["target_lang"].mutable
+    REGISTRY["target_lang"].mutable = False
+    try:
+        with pytest.raises(SettingValidationError, match="setting_immutable"):
+            set_override("target_lang", "fr")
+    finally:
+        REGISTRY["target_lang"].mutable = original
 
 
 def test_set_override_rejects_unknown_key(client):
     with pytest.raises(SettingValidationError, match="unknown_setting"):
         set_override("hax", "ohno")
+
+
+def test_llm_provider_is_mutable(client):
+    """llm_provider and llm_model are live-switchable (no restart needed)."""
+    original_provider = settings.llm_provider
+    original_model = settings.llm_model
+    try:
+        set_override("llm_provider", "ollama")
+        assert settings.llm_provider == "ollama"
+        set_override("llm_model", "qwen3:14b")
+        assert settings.llm_model == "qwen3:14b"
+        # Router picks up the live setting, not a cached startup value.
+        from server.llm.router import get_provider
+        p = get_provider()
+        assert p.name == "ollama"
+    finally:
+        settings.llm_provider = original_provider
+        settings.llm_model = original_model
 
 
 def test_set_override_url_validation(client):
@@ -129,9 +156,16 @@ def test_patch_config_missing_value_400(client):
 
 
 def test_patch_config_immutable_400(client):
-    r = client.patch("/config", json={"key": "llm_provider", "value": "openai"})
-    assert r.status_code == 400
-    assert "immutable" in r.json()["detail"]
+    """Temporarily flip a field to immutable to exercise the 400 path."""
+    from server.settings_store import REGISTRY
+    original = REGISTRY["target_lang"].mutable
+    REGISTRY["target_lang"].mutable = False
+    try:
+        r = client.patch("/config", json={"key": "target_lang", "value": "fr"})
+        assert r.status_code == 400
+        assert "immutable" in r.json()["detail"]
+    finally:
+        REGISTRY["target_lang"].mutable = original
 
 
 def test_patch_config_unknown_key_400(client):

@@ -203,9 +203,11 @@ def test_config_returns_expected_keys(client):
         assert required in sample, f"missing {required} on reading_rate_cps"
     assert sample["type"] == "int"
     assert sample["mutable"] is True
-    # Restart-only field marked correctly.
-    assert fields["llm_provider"]["mutable"] is False
-    assert fields["llm_provider"]["restart_required"] is True
+    # All fields are now live-mutable (no restart-only fields remain).
+    assert fields["llm_provider"]["mutable"] is True
+    assert fields["llm_provider"]["restart_required"] is False
+    assert fields["max_concurrent"]["mutable"] is True
+    assert fields["max_concurrent"]["restart_required"] is False
 
 
 def test_config_never_returns_secrets(client, monkeypatch):

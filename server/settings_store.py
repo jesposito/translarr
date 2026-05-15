@@ -85,25 +85,23 @@ def _validate_http_url(v: Any) -> None:
 # done — UI is data-driven.
 
 REGISTRY: dict[str, SettingMeta] = {
-    # === LLM provider (restart-required) ===
+    # === LLM provider ===
     "llm_provider": SettingMeta(
         key="llm_provider",
         type="str",
         section="llm",
         description="Which LLM service to use for translation.",
         choices=["anthropic", "openai", "ollama"],
-        mutable=False,
-        restart_required=True,
-        hint="Anthropic gives the best translation quality; Ollama is free + local.",
+        mutable=True,
+        hint="Takes effect on the next job. Anthropic gives the best translation quality; Ollama is free + local.",
     ),
     "llm_model": SettingMeta(
         key="llm_model",
         type="str",
         section="llm",
         description="Specific model identifier from the chosen provider.",
-        mutable=False,
-        restart_required=True,
-        hint="e.g. claude-sonnet-4-6, gpt-4o-mini, qwen3:14b.",
+        mutable=True,
+        hint="Takes effect on the next job. e.g. claude-sonnet-4-6, gpt-4o-mini, qwen3:14b.",
     ),
     # === Translation defaults ===
     "target_lang": SettingMeta(
@@ -168,9 +166,8 @@ REGISTRY: dict[str, SettingMeta] = {
         description="Number of translation jobs to run in parallel.",
         min=1, max=10,
         default_label="2",
-        mutable=False,  # worker pool sized at startup
-        restart_required=True,
-        hint="Bump if you have a lot of API headroom; 2 keeps API cost spikes bounded.",
+        mutable=True,
+        hint="Takes effect immediately. Extra workers exit after their current job; new ones spawn on demand.",
     ),
     # === On-demand translation ===
     "auto_translate_on_playback": SettingMeta(
@@ -411,6 +408,11 @@ def set_override(key: str, raw_value: Any) -> Any:
         setattr(settings, key, value)
     except Exception as e:
         log.warning("set_override_apply_failed", key=key, error=str(e))
+
+    # Side-effect hooks: some settings need immediate action beyond setattr.
+    if key == "max_concurrent":
+        from server.queue.worker import adjust_pool
+        adjust_pool()
 
     log.info("setting_override_set", key=key, has_value=value not in (None, "", False))
     return value
