@@ -337,10 +337,8 @@
 <header class="page-head">
   <h1>Settings</h1>
   <p class="sub">
-    Edit any value below to save it. Changes apply immediately
-    unless the field is marked
-    <span class="restart-tag">restart-only</span> — those still require
-    editing your <code class="mono">.env</code> and recreating the container.
+    Edit any value below to save it — changes apply immediately.
+    API keys and other secrets are write-only; existing values are never shown.
   </p>
 </header>
 
@@ -401,9 +399,9 @@
   </div>
 {:else}
   {#each [
-    { id: 'llm',         title: 'LLM provider',        hint: 'Restart-only. Pick the engine that translates your subtitles.' },
+    { id: 'llm',         title: 'LLM provider',        hint: 'Takes effect on the next translation job — no restart needed.' },
     { id: 'translation', title: 'Translation defaults', hint: 'Defaults applied to every translation when the caller doesn\'t override.' },
-    { id: 'cost',        title: 'Cost guards',         hint: 'Hard limits to keep API spend bounded.' },
+    { id: 'cost',        title: 'Cost guards',         hint: 'Hard limits to keep API spend bounded. Concurrency adjusts live.' },
     { id: 'playback',    title: 'On-demand translation', hint: 'Press-Play behavior in Emby.' },
     { id: 'ntfy',        title: 'Push notifications',  hint: 'ntfy.sh toast when a translation finishes or fails.' },
     { id: 'arr',         title: 'arr-stack integration', hint: 'Sonarr / Radarr / Emby / Jellyfin endpoints + the shared webhook secret.' },

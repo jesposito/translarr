@@ -21,6 +21,11 @@ log = structlog.get_logger()
 
 _POLL_INTERVAL_SECONDS = 1.0
 
+# Module-level pool state so adjust_pool() can resize dynamically.
+_stop_event: asyncio.Event | None = None
+_tasks: list[asyncio.Task] = []
+_next_worker_id: int = 0
+
 
 def _job_to_request(job: Job) -> TranslateRequest:
     return TranslateRequest(
@@ -128,6 +133,11 @@ async def worker_loop(stop_event: asyncio.Event, worker_id: int) -> None:
     q = get_queue()
     log.info("worker_started", worker_id=worker_id)
     while not stop_event.is_set():
+        # Self-termination: if pool shrunk, workers with high IDs exit.
+        if _should_exit(worker_id):
+            log.info("worker_self_terminating", worker_id=worker_id,
+                     max_concurrent=settings.max_concurrent)
+            break
         try:
             job = q.claim_next()
         except Exception:
@@ -143,7 +153,48 @@ async def worker_loop(stop_event: asyncio.Event, worker_id: int) -> None:
     log.info("worker_stopped", worker_id=worker_id)
 
 
+def _should_exit(worker_id: int) -> bool:
+    """True when the pool target has shrunk below this worker's slot."""
+    # Workers 0..(target-1) stay alive; higher-numbered ones exit.
+    return worker_id >= settings.max_concurrent
+
+
+def adjust_pool() -> None:
+    """Grow or shrink the worker pool to match ``settings.max_concurrent``.
+
+    Called from the settings store after a PATCH to ``max_concurrent``.
+    Growth is immediate (new tasks spawn). Shrinking is graceful — excess
+    workers notice on their next loop iteration and self-terminate.
+    """
+    global _next_worker_id
+
+    if _stop_event is None:
+        return  # Pool not started yet (shouldn't happen in prod).
+
+    target = settings.max_concurrent
+    alive = [t for t in _tasks if not t.done()]
+    current = len(alive)
+
+    if target > current:
+        for _ in range(target - current):
+            tid = _next_worker_id
+            _next_worker_id += 1
+            task = asyncio.ensure_future(worker_loop(_stop_event, tid))
+            _tasks.append(task)
+        log.info("worker_pool_grew", spawned=target - current, total=target)
+    elif target < current:
+        # Excess workers self-terminate on their next loop iteration.
+        log.info("worker_pool_shrinking", current=current, target=target)
+    # else: already at target, nothing to do.
+
+
 async def start_workers(stop_event: asyncio.Event) -> list[asyncio.Task]:
     """Spawn N worker tasks; return handles so caller can await on shutdown."""
+    global _stop_event, _next_worker_id
+    _stop_event = stop_event
+    _next_worker_id = 0
     n = settings.max_concurrent
-    return [asyncio.create_task(worker_loop(stop_event, i)) for i in range(n)]
+    tasks = [asyncio.create_task(worker_loop(stop_event, i)) for i in range(n)]
+    _next_worker_id = n
+    _tasks.extend(tasks)
+    return tasks
