@@ -1,8 +1,8 @@
 <?xml version="1.0"?>
 <Container>
   <Name>Translarr</Name>
-  <Repository>jesposito/translarr</Repository>
-  <Registry>https://hub.docker.com/r/jesposito/translarr</Registry>
+  <Repository>ghcr.io/jesposito/translarr</Repository>
+  <Registry>https://github.com/jesposito/translarr/pkgs/container/translarr</Registry>
   <Network>bridge</Network>
   <Shell>sh</Shell>
   <Privileged>false</Privileged>
@@ -21,7 +21,7 @@ Features:
 - Editable settings with live updates — no container restart needed
   </Overview>
   <Category>MediaApp:Other</Category>
-  <WebUI>http://[IP]:[PORT:9100]</WebUI>
+  <WebUI>http://[IP]:[PORT:9000]</WebUI>
   <TemplateURL>https://raw.githubusercontent.com/jesposito/translarr/main/templates/translarr.xml</TemplateURL>
   <Icon>https://raw.githubusercontent.com/jesposito/translarr/main/templates/translarr.png</Icon>
 

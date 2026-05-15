@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- Background -->
+  <rect width="512" height="512" rx="64" fill="#4F46E5"/>
+  
+  <!-- Subtitle frame (represents video/subs) -->
+  <rect x="96" y="160" width="320" height="192" rx="16" fill="none" stroke="white" stroke-width="12"/>
+  
+  <!-- Subtitle lines (source language) -->
+  <rect x="128" y="200" width="140" height="16" rx="8" fill="white" opacity="0.5"/>
+  <rect x="128" y="228" width="200" height="16" rx="8" fill="white" opacity="0.5"/>
+  
+  <!-- Arrow (translation) -->
+  <path d="M256 290 L256 330 M240 314 L256 330 L272 314" stroke="#FCD34D" stroke-width="12" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+  
+  <!-- Subtitle lines (translated) -->
+  <rect x="128" y="345" width="180" height="16" rx="8" fill="#FCD34D"/>
+  <rect x="128" y="373" width="120" height="16" rx="8" fill="#FCD34D" opacity="0.7"/>
+  
+  <!-- Sparkle (AI/magic) -->
+  <path d="M380 140 L386 156 L402 162 L386 168 L380 184 L374 168 L358 162 L374 156 Z" fill="#FCD34D"/>
+</svg>
