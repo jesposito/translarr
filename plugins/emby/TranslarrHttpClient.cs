@@ -24,18 +24,9 @@ namespace Translarr.Emby
         // One static HttpClient for the plugin lifetime. Disposing
         // HttpClient per call leaks sockets in TIME_WAIT on .NET
         // netstandard2.0 — this is the documented BCL guidance.
-        // Default 30s for short ops (health, enqueue, get-job).
         private static readonly HttpClient SharedClient = new HttpClient
         {
             Timeout = TimeSpan.FromSeconds(30),
-        };
-
-        // Separate longer-timeout client for sync translations. A 22-min
-        // episode takes ~1-2 min at Sonnet, a 2-hour film up to ~6 min;
-        // 10-minute ceiling covers worst-case retries.
-        private static readonly HttpClient SyncTranslateClient = new HttpClient
-        {
-            Timeout = TimeSpan.FromMinutes(10),
         };
 
         private readonly ILogger _logger;
@@ -70,50 +61,74 @@ namespace Translarr.Emby
         }
 
         /// <summary>
-        /// POST /translate/sync. Blocks until the Translarr server finishes
-        /// (or the 10-minute timeout fires). Returns the raw .srt bytes —
-        /// not the JSON envelope — by reading the output file from the
-        /// JSON response's <c>output_path</c>. NOTE: this won't work
-        /// across container boundaries; we ship the bytes embedded in the
-        /// response body via a side query to the dedicated sync endpoint.
+        /// Async translate: enqueue via POST /translate (returns immediately),
+        /// then poll GET /jobs/{id} until the worker finishes, then fetch the
+        /// .srt bytes via GET /output.
         ///
-        /// Implementation: POST /translate/sync, parse the JSON response,
-        /// then read the .srt file bytes through a second GET to a new
-        /// endpoint /output/{path} (added to the server alongside).
+        /// Non-blocking on the server side — the worker pool handles the
+        /// actual LLM calls. We just poll here with a generous timeout.
+        /// If the job is already done (dedup), we skip straight to fetching.
         /// </summary>
         public async Task<byte[]> TranslateSyncAsync(string mediaPath, string targetLang, CancellationToken cancellationToken)
         {
+            // 1. Enqueue (returns immediately with job_id).
             var payload = new TranslateRequest
             {
                 MediaPath = mediaPath,
                 TargetLang = targetLang,
             };
-            using (var req = BuildRequest(HttpMethod.Post, "/translate/sync", payload))
-            using (var resp = await SyncTranslateClient.SendAsync(req, cancellationToken).ConfigureAwait(false))
+            var enqueueResult = await SendAsync<EnqueueResult>(HttpMethod.Post, "/translate", payload).ConfigureAwait(false);
+
+            if (enqueueResult == null || string.IsNullOrEmpty(enqueueResult.JobId))
             {
-                var text = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
-                if (!resp.IsSuccessStatusCode)
-                {
-                    throw new TranslarrHttpException((int)resp.StatusCode, "POST /translate/sync failed: " + Truncate(text, 500));
-                }
-                // Response shape: { output_path, source_events, output_events, ... }
-                // We need to fetch the actual .srt bytes. Add a /output endpoint
-                // on the server that returns the file contents.
-                TranslateResult result;
-                try
-                {
-                    result = JsonConvert.DeserializeObject<TranslateResult>(text);
-                }
-                catch (JsonException jex)
-                {
-                    throw new TranslarrHttpException((int)resp.StatusCode, "Could not parse /translate/sync response: " + jex.Message);
-                }
-                if (result == null || string.IsNullOrEmpty(result.OutputPath))
-                {
-                    throw new TranslarrHttpException(500, "/translate/sync returned no output_path");
-                }
-                return await FetchSrtBytesAsync(result.OutputPath, cancellationToken).ConfigureAwait(false);
+                throw new TranslarrHttpException(500, "POST /translate returned no job_id");
             }
+
+            var jobId = enqueueResult.JobId;
+            _logger?.Info("Translarr: job {0} enqueued (status={1})", jobId, enqueueResult.Status);
+
+            // 2. Poll GET /jobs/{id} until terminal state or timeout.
+            //    Use the long-timeout client since we're waiting for the worker.
+            var pollInterval = TimeSpan.FromSeconds(2);
+            var maxWait = TimeSpan.FromMinutes(10);
+            var deadline = DateTime.UtcNow + maxWait;
+
+            while (DateTime.UtcNow < deadline)
+            {
+                if (cancellationToken.IsCancellationRequested)
+                {
+                    throw new OperationCanceledException(cancellationToken);
+                }
+
+                var job = await GetJobAsync(jobId).ConfigureAwait(false);
+                if (job == null)
+                {
+                    throw new TranslarrHttpException(500, "Job " + jobId + " disappeared from queue");
+                }
+
+                switch (job.State)
+                {
+                    case "done":
+                        _logger?.Info("Translarr: job {0} done, fetching output", jobId);
+                        if (string.IsNullOrEmpty(job.OutputPath))
+                        {
+                            throw new TranslarrHttpException(500, "Job " + jobId + " finished but has no output_path");
+                        }
+                        return await FetchSrtBytesAsync(job.OutputPath, cancellationToken).ConfigureAwait(false);
+
+                    case "failed":
+                        var errMsg = !string.IsNullOrEmpty(job.Error) ? job.Error : "unknown error";
+                        throw new TranslarrHttpException(500, "Translation failed: " + Truncate(errMsg, 500));
+
+                    case "cancelled":
+                        throw new OperationCanceledException("Job " + jobId + " was cancelled");
+                }
+
+                // Still queued/running/retrying — wait and poll again.
+                await Task.Delay(pollInterval, cancellationToken).ConfigureAwait(false);
+            }
+
+            throw new TranslarrHttpException(504, "Translation timed out after " + maxWait.TotalMinutes + " minutes");
         }
 
         private async Task<byte[]> FetchSrtBytesAsync(string outputPath, CancellationToken cancellationToken)

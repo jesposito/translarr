@@ -9,18 +9,16 @@ from fastapi.staticfiles import StaticFiles
 
 from server import __version__, settings_store
 from server.config import settings
-from server.cost_tracker import COST_TABLE_CENTS_PER_MTOK, CostCapExceeded
-from server.models import HealthResponse, TranslateRequest, TranslateResponse
+from server.cost_tracker import COST_TABLE_CENTS_PER_MTOK
+from server.models import HealthResponse, TranslateRequest
 from server.queue.base import Job, JobState, compute_dedup_key
 from server.queue.sqlite import get_queue
 from server.queue.worker import start_workers
 from server.settings_store import PRESETS, REGISTRY, SettingValidationError
 from server.subs.extract import _normalize_lang, extract_track, list_sub_tracks, pick_source_track
 from server.subs.pipeline import (
-    AlreadyTranslated,
     _load_subs_with_encoding_fallback,
     _output_path,
-    translate_media,
 )
 from server.webhooks import emby, jellyfin, radarr, sonarr
 
@@ -388,49 +386,121 @@ async def cancel_job(job_id: str) -> dict:
     return {"status": "cancelled"}
 
 
-@app.post("/translate/sync", response_model=TranslateResponse)
-async def translate_sync(req: TranslateRequest) -> TranslateResponse:
-    """Back-compat sync endpoint. Same as v0.1 /translate behavior. Blocks until done.
+@app.post("/translate/sync")
+async def translate_sync(req: TranslateRequest) -> dict:
+    """Enqueue + short poll: returns quickly in all cases.
 
-    Prefer POST /translate + polling for new integrations.
+    - If the subtitle already exists on disk → returns ``{output_path}``
+      immediately (sub-second).
+    - If the translation can finish within ``SYNC_POLL_TIMEOUT`` (90 s) →
+      waits and returns ``{output_path}`` when done.
+    - If the translation takes longer → returns 202 with ``{job_id}`` so
+      the client knows to poll or check back later.  Old Emby plugin DLLs
+      will surface this as an error ("translation in progress") instead of
+      spinning forever.
+
+    All translations run through the queue (visible in the Web UI dashboard).
     """
+    target_lang = req.target_lang or settings.target_lang
+    media_path_str = str(req.media_path)
+    dedup_key = compute_dedup_key(media_path_str, req.source_track_index, target_lang)
+
     log.info(
         "translate_sync_request",
-        media_path=str(req.media_path),
+        media_path=media_path_str,
         source_track_index=req.source_track_index,
         source_lang=req.source_lang,
-        target_lang=req.target_lang,
+        target_lang=target_lang,
         force=req.force,
     )
-    try:
-        return await translate_media(req)
-    except FileNotFoundError as e:
-        log.warning("translate_sync_file_not_found", media_path=str(req.media_path), error=str(e))
-        raise HTTPException(status_code=404, detail=str(e)) from e
-    except AlreadyTranslated as e:
-        # Existing output is fine — return its metadata via TranslateResponse
-        # so callers (notably the Emby plugin's ISubtitleProvider) can fetch
-        # the bytes via /output without a second click. Counts as success,
-        # not an error.
-        return TranslateResponse(
-            output_path=e.path,
-            source_events=0,
-            output_events=0,
-            lines_translated=0,
-            duration_seconds=0.0,
-            model="-",
-            provider="-",
-            cost_cents=0,
-            tokens_in=0,
-            tokens_out=0,
+
+    # --- Fast path: output already on disk ----------------------------------
+    media = settings.media_root / req.media_path if not req.media_path.is_absolute() else req.media_path
+    if not media.exists():
+        raise HTTPException(status_code=404, detail=f"media not found: {req.media_path}")
+
+    out_path = _output_path(media, target_lang)
+    if out_path.exists() and not req.force:
+        log.info("translate_sync_already_done", output=str(out_path))
+        return {
+            "output_path": str(out_path),
+            "source_events": 0,
+            "output_events": 0,
+            "cost_cents": 0,
+            "tokens_in": 0,
+            "tokens_out": 0,
+        }
+
+    # --- Enqueue (reuse dedup if any) --------------------------------------
+    q = get_queue()
+    existing = q.find_by_dedup(dedup_key)
+
+    if existing and existing.state == JobState.DONE and not req.force:
+        log.info("translate_sync_dedup_done", job_id=existing.id)
+        return {
+            "output_path": existing.output_path or "",
+            "source_events": 0,
+            "output_events": 0,
+            "cost_cents": existing.cost_cents,
+            "tokens_in": existing.tokens_in,
+            "tokens_out": existing.tokens_out,
+        }
+
+    if (
+        existing
+        and existing.state in {JobState.QUEUED, JobState.RUNNING, JobState.RETRYING}
+        and not req.force
+    ):
+        job_id = existing.id
+        log.info("translate_sync_dedup_wait", job_id=job_id, state=existing.state.value)
+    else:
+        job = Job(
+            id="",
+            dedup_key=dedup_key,
+            media_path=media_path_str,
+            target_lang=target_lang,
+            state=JobState.QUEUED,
+            source_track_index=req.source_track_index,
+            source_lang=req.source_lang,
+            force_flag=req.force,
+            glossary_id=req.glossary_id,
         )
-    except CostCapExceeded as e:
-        raise HTTPException(status_code=429, detail=str(e)) from e
-    except TimeoutError as e:
-        raise HTTPException(status_code=504, detail=str(e)) from e
-    except ValueError as e:
-        log.warning("translate_sync_value_error", media_path=str(req.media_path), error=str(e))
-        raise HTTPException(status_code=400, detail=str(e)) from e
+        persisted = q.enqueue(job)
+        job_id = persisted.id
+        log.info("translate_sync_enqueued", job_id=job_id)
+
+    # --- Short poll: wait up to 90 s for the worker to finish ---------------
+    SYNC_POLL_TIMEOUT = 90  # seconds — covers most TV episodes.
+    poll_interval = 0.5
+    deadline = asyncio.get_event_loop().time() + SYNC_POLL_TIMEOUT
+
+    while asyncio.get_event_loop().time() < deadline:
+        job = q.get(job_id)
+        if job is None:
+            raise HTTPException(status_code=500, detail="job_lost")
+        if job.state == JobState.DONE:
+            log.info("translate_sync_done", job_id=job_id, output=job.output_path)
+            return {
+                "output_path": job.output_path or "",
+                "source_events": 0,
+                "output_events": 0,
+                "cost_cents": job.cost_cents,
+                "tokens_in": job.tokens_in,
+                "tokens_out": job.tokens_out,
+            }
+        if job.state == JobState.FAILED:
+            raise HTTPException(status_code=500, detail=job.error or "translation_failed")
+        if job.state == JobState.CANCELLED:
+            raise HTTPException(status_code=499, detail="job_cancelled")
+        await asyncio.sleep(poll_interval)
+
+    # Still running — return 202 so client knows it's in progress.
+    # Old Emby DLLs will show this as an error; updated plugin polls.
+    log.info("translate_sync_still_running", job_id=job_id)
+    raise HTTPException(
+        status_code=202,
+        detail=f"translation_in_progress: job_id={job_id}",
+    )
 
 
 @app.post("/test/ntfy")
