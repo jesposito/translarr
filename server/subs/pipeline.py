@@ -207,7 +207,11 @@ async def translate_media(req: TranslateRequest) -> TranslateResponse:
         SubEvent(start_ms=ev.start, end_ms=ev.end, text=t, style=ev.style)
         for ev, t in zip(subs.events, translations, strict=True)
     ]
-    adapted = adapt_events_for_cps(events, max_cps=settings.reading_rate_cps)
+    # Per-language CPS override: CJK reads at ~7 cps, Latin at ~17. The
+    # global reading_rate_cps is the fallback for languages not in the
+    # override map.
+    cps = settings.reading_rate_cps_by_lang.get(target_lang, settings.reading_rate_cps)
+    adapted = adapt_events_for_cps(events, max_cps=cps)
 
     out_subs = pysubs2.SSAFile()
     for ev in adapted:

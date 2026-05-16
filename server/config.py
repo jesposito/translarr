@@ -19,7 +19,29 @@ class Settings(BaseSettings):
     media_root: Path = Path("/media")
 
     target_lang: str = "en"
+    # Default characters-per-second cap for split decisions. Used when
+    # the per-language override below doesn't list the target lang.
     reading_rate_cps: int = 17
+    # Per-target-language CPS overrides. Subtitle reading speed varies
+    # by script — CJK (logographic) is ~5-7 cps optimal, Latin scripts
+    # cluster around 17, RTL scripts (Arabic/Hebrew) are typically a
+    # bit slower than Latin. Values below sourced from Netflix's
+    # published timed-text style guide. Override any of these via env
+    # like READING_RATE_CPS_BY_LANG='{"ja":7,"zh":7}' or live-mutable
+    # JSON in the Settings page.
+    reading_rate_cps_by_lang: dict[str, int] = {
+        "ja": 7,   # Japanese
+        "zh": 7,   # Chinese (Mandarin / Cantonese)
+        "ko": 12,  # Korean
+        "th": 12,  # Thai
+        "ar": 14,  # Arabic
+        "he": 14,  # Hebrew
+        "de": 17,  # German (long words but Latin script)
+        "en": 17,
+        "es": 17,
+        "fr": 17,
+        "pt": 17,
+    }
     max_concurrent: int = 2
     context_window_lines: int = 10
 

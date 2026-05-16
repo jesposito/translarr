@@ -431,6 +431,60 @@ async def cancel_job(job_id: str) -> dict:
     return {"status": "cancelled"}
 
 
+@app.post("/jobs/{job_id}/retry")
+async def retry_job(job_id: str) -> dict:
+    """Re-enqueue a finished job, forcing re-translation.
+
+    Useful when you've switched to a better/cheaper model and want to
+    re-run an old translation, OR when a failed job needs another shot
+    after you've fixed whatever caused it (e.g. set the right API key).
+
+    Creates a NEW job row with ``force=true`` (which bypasses the
+    "already translated" check) — the original row stays as-is for
+    audit. Returns the new job_id so the client can navigate to it.
+
+    Only terminal jobs (done/failed/cancelled) are retryable; live jobs
+    (queued/running/retrying) return 409 since the existing attempt is
+    still in flight.
+    """
+    q = get_queue()
+    original = q.get(job_id)
+    if not original:
+        raise HTTPException(status_code=404, detail="job_not_found")
+    if original.state not in {JobState.DONE, JobState.FAILED, JobState.CANCELLED}:
+        raise HTTPException(
+            status_code=409,
+            detail=f"job_still_active: state={original.state.value}",
+        )
+
+    # Build a fresh dedup key that includes "retry" so we don't collide
+    # with the original row's dedup, and so subsequent retries each get
+    # their own row instead of folding into one.
+    import time as _time
+    new_dedup = f"{original.dedup_key}:retry:{int(_time.time())}"
+
+    persisted = q.enqueue(
+        Job(
+            id="",
+            dedup_key=new_dedup,
+            media_path=original.media_path,
+            target_lang=original.target_lang,
+            state=JobState.QUEUED,
+            source_track_index=original.source_track_index,
+            source_lang=original.source_lang,
+            force_flag=True,
+            glossary_id=original.glossary_id,
+        )
+    )
+    log.info(
+        "job_retry_enqueued",
+        original_job=job_id,
+        new_job=persisted.id,
+        media=original.media_path,
+    )
+    return {"status": "queued", "job_id": persisted.id, "original_job_id": job_id}
+
+
 @app.post("/translate/sync")
 async def translate_sync(req: TranslateRequest) -> dict:
     """Enqueue + short poll: returns quickly in all cases.
@@ -583,6 +637,96 @@ async def translate_sync(req: TranslateRequest) -> dict:
         status_code=202,
         detail=f"translation_in_progress: job_id={job_id}",
     )
+
+
+@app.get("/backup")
+async def backup() -> Response:
+    """Download a consistent snapshot of the Translarr database.
+
+    Captures glossaries, series configs, job history, settings
+    overrides, and cost tracking in a single SQLite file the user can
+    save off-box. Restore is "stop the container, copy the file back
+    into /data, start again" — no special tooling needed.
+
+    Uses SQLite's Online Backup API so the snapshot is consistent even
+    while a translation is in flight. Returns the .db bytes with a
+    timestamped filename so multiple backups don't collide.
+    """
+    from datetime import UTC, datetime
+
+    from server.db import online_backup
+
+    try:
+        data = online_backup()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"backup_failed: {e}") from e
+
+    ts = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
+    filename = f"translarr-{ts}.db"
+    return Response(
+        content=data,
+        media_type="application/octet-stream",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Content-Length": str(len(data)),
+        },
+    )
+
+
+@app.post("/test/llm")
+async def test_llm() -> dict:
+    """Ping the currently-configured LLM provider with a one-line
+    translation request.
+
+    Used by the Settings page "Test model" button so users can verify
+    their provider + model + API key BEFORE running a real translation
+    (and before silently burning budget on a misnamed model that the
+    provider accepts but aliases to something unexpected).
+
+    On success: returns the actual translated output, token counts, and
+    cost estimate so the user can sanity-check the numbers.
+    On failure: surfaces the provider's real error message verbatim so
+    the user can fix the underlying issue (bad API key, invalid model
+    name, network).
+    """
+    from server.cost_tracker import estimate_cents, is_known_model
+    from server.llm.router import get_provider
+
+    target = settings.target_lang or "en"
+    test_lines = ["hello world"]
+    try:
+        provider = get_provider()
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"provider_init_failed: {e}") from e
+
+    try:
+        out = await provider.translate_batch(
+            lines=test_lines,
+            source_lang="en",
+            target_lang=target,
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=502,
+            detail=f"{type(e).__name__}: {e}",
+        ) from e
+
+    # Cheap estimate — same heuristic the worker uses.
+    est_in = sum(len(s) for s in test_lines) // 4 + 300
+    est_out = sum(len(s) for s in (out or [])) // 4
+    cost = estimate_cents(provider.model, est_in, est_out)
+
+    return {
+        "status": "ok",
+        "provider": provider.name,
+        "model": provider.model,
+        "model_known_to_cost_tracker": is_known_model(provider.model),
+        "input_lines": test_lines,
+        "output_lines": out,
+        "tokens_in_estimated": est_in,
+        "tokens_out_estimated": est_out,
+        "cost_cents_estimated": cost,
+    }
 
 
 @app.post("/test/ntfy")

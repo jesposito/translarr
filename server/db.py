@@ -31,6 +31,42 @@ def _db_path() -> Path:
 _conn: sqlite3.Connection | None = None
 
 
+def db_path() -> Path:
+    """Public accessor for the live DB path. Used by /backup and tests."""
+    return _db_path()
+
+
+def online_backup() -> bytes:
+    """Return a consistent point-in-time copy of the database as bytes.
+
+    Uses the SQLite Online Backup API so the snapshot is consistent even
+    while the worker is mid-transaction (vs. ``shutil.copyfile`` which
+    can produce a corrupted file under WAL mode if a write lands during
+    the copy). Returns the .db bytes for the caller to stream as a
+    file download.
+    """
+    src = get_conn()
+    import contextlib
+    import tempfile
+
+    # SQLite's backup API needs a destination Connection. Use a tempfile
+    # destination and slurp the bytes — :memory: connections can't
+    # easily serialise.
+    with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as tmp:
+        tmp_path = tmp.name
+    try:
+        dst = sqlite3.connect(tmp_path)
+        try:
+            src.backup(dst)
+        finally:
+            dst.close()
+        with open(tmp_path, "rb") as f:
+            return f.read()
+    finally:
+        with contextlib.suppress(OSError):
+            Path(tmp_path).unlink()
+
+
 def get_conn() -> sqlite3.Connection:
     """Return process-wide singleton SQLite connection. Initializes on first call."""
     global _conn
