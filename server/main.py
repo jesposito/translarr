@@ -499,18 +499,19 @@ async def translate_sync(req: TranslateRequest) -> dict:
         job_id = existing.id
         log.info("translate_sync_dedup_wait", job_id=job_id, state=existing.state.value)
     else:
-        job = Job(
-            id="",
-            dedup_key=dedup_key,
-            media_path=media_path_str,
-            target_lang=target_lang,
-            state=JobState.QUEUED,
-            source_track_index=req.source_track_index,
-            source_lang=req.source_lang,
-            force_flag=req.force,
-            glossary_id=req.glossary_id,
+        persisted = q.enqueue(
+            Job(
+                id="",
+                dedup_key=dedup_key,
+                media_path=media_path_str,
+                target_lang=target_lang,
+                state=JobState.QUEUED,
+                source_track_index=req.source_track_index,
+                source_lang=req.source_lang,
+                force_flag=req.force,
+                glossary_id=req.glossary_id,
+            )
         )
-        persisted = q.enqueue(job)
         job_id = persisted.id
         log.info("translate_sync_enqueued", job_id=job_id)
 

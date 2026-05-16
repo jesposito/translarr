@@ -38,6 +38,16 @@ target-version = "py312"
 select = ["E", "F", "I", "B", "UP", "SIM", "RUF"]
 ignore = ["E501"]
 
+[tool.mypy]
+python_version = "3.11"
+ignore_missing_imports = true
+# Strict enough to catch real bugs without bikeshedding over typing minutiae.
+# Tests are excluded — they rely on monkeypatching and stub fixtures that
+# would require extensive Protocol definitions to type cleanly.
+files = ["server"]
+warn_unused_ignores = true
+no_implicit_optional = true
+
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]

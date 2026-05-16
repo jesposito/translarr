@@ -51,98 +51,98 @@ async def refresh_libraries_after(output_path: Path) -> None:
             log.warning("library_refresh_failed", error=str(r))
 
 
-async def _find_emby_item(media_path: str) -> str | None:
+async def _find_emby_item(media_path: str, base_url: str, api_key: str) -> str | None:
     """Look up an Emby item ID by file path. Returns None if not found."""
-    url = f"{settings.emby_url.rstrip('/')}/emby/Items"
     timeout = settings.library_refresh_timeout_seconds
     async with httpx.AsyncClient(timeout=timeout) as client:
         resp = await client.get(
-            url,
+            f"{base_url}/emby/Items",
             params={
                 "Path": media_path,
                 "Recursive": "true",
                 "Limit": "1",
-                "api_key": settings.emby_api_key,
+                "api_key": api_key,
             },
         )
         if resp.status_code >= 400:
             return None
-        data = resp.json()
-        items = data.get("Items") or []
-        if items:
-            return items[0].get("Id")
-    return None
+        items = resp.json().get("Items") or []
+        return items[0].get("Id") if items else None
 
 
 async def _refresh_emby_item(media_path: str) -> None:
-    """Item-specific Emby refresh. Falls back to full library scan."""
+    """Item-specific Emby refresh. Falls back to full library scan.
+
+    Caller must have verified ``settings.emby_url`` and ``settings.emby_api_key``
+    are set; this function asserts the same so the type checker can see
+    the strings are non-None for URL construction.
+    """
+    assert settings.emby_url is not None
+    assert settings.emby_api_key is not None
+    base_url = settings.emby_url.rstrip("/")
+    api_key = settings.emby_api_key
     timeout = settings.library_refresh_timeout_seconds
 
-    # Try item-specific refresh first.
-    item_id = await _find_emby_item(media_path)
+    item_id = await _find_emby_item(media_path, base_url, api_key)
     if item_id:
-        url = f"{settings.emby_url.rstrip('/')}/emby/Items/{item_id}/Refresh"
+        url = f"{base_url}/emby/Items/{item_id}/Refresh"
         async with httpx.AsyncClient(timeout=timeout) as client:
-            resp = await client.post(url, params={"api_key": settings.emby_api_key})
+            resp = await client.post(url, params={"api_key": api_key})
             resp.raise_for_status()
         log.info("emby_item_refresh_ok", item_id=item_id)
         return
 
-    # Fallback: full library scan.
-    url = f"{settings.emby_url.rstrip('/')}/emby/Library/Refresh"
+    url = f"{base_url}/emby/Library/Refresh"
     async with httpx.AsyncClient(timeout=timeout) as client:
-        resp = await client.post(url, params={"api_key": settings.emby_api_key})
+        resp = await client.post(url, params={"api_key": api_key})
         resp.raise_for_status()
     log.info("emby_full_refresh_ok")
 
 
-async def _find_jellyfin_item(media_path: str) -> str | None:
+async def _find_jellyfin_item(media_path: str, base_url: str, api_key: str) -> str | None:
     """Look up a Jellyfin item ID by file path. Returns None if not found."""
-    url = f"{settings.jellyfin_url.rstrip('/')}/Items"
     timeout = settings.library_refresh_timeout_seconds
     async with httpx.AsyncClient(timeout=timeout) as client:
         resp = await client.get(
-            url,
+            f"{base_url}/Items",
             params={
                 "Path": media_path,
                 "Recursive": "true",
                 "Limit": "1",
             },
-            headers={"X-Emby-Token": settings.jellyfin_api_key},
+            headers={"X-Emby-Token": api_key},
         )
         if resp.status_code >= 400:
             return None
-        data = resp.json()
-        items = data.get("Items") or []
-        if items:
-            return items[0].get("Id")
-    return None
+        items = resp.json().get("Items") or []
+        return items[0].get("Id") if items else None
 
 
 async def _refresh_jellyfin_item(media_path: str) -> None:
-    """Item-specific Jellyfin refresh. Falls back to full library scan."""
+    """Item-specific Jellyfin refresh. Falls back to full library scan.
+
+    Caller must have verified ``settings.jellyfin_url`` and
+    ``settings.jellyfin_api_key`` are set; this function asserts the same
+    so the type checker can see the strings are non-None.
+    """
+    assert settings.jellyfin_url is not None
+    assert settings.jellyfin_api_key is not None
+    base_url = settings.jellyfin_url.rstrip("/")
+    api_key = settings.jellyfin_api_key
     timeout = settings.library_refresh_timeout_seconds
 
-    # Try item-specific refresh first.
-    item_id = await _find_jellyfin_item(media_path)
+    item_id = await _find_jellyfin_item(media_path, base_url, api_key)
     if item_id:
-        url = f"{settings.jellyfin_url.rstrip('/')}/Items/{item_id}/Refresh"
+        url = f"{base_url}/Items/{item_id}/Refresh"
         async with httpx.AsyncClient(timeout=timeout) as client:
-            resp = await client.post(
-                url,
-                headers={"X-Emby-Token": settings.jellyfin_api_key},
-            )
+            resp = await client.post(url, headers={"X-Emby-Token": api_key})
             resp.raise_for_status()
         log.info("jellyfin_item_refresh_ok", item_id=item_id)
         return
 
-    # Fallback: full library scan.
-    url = f"{settings.jellyfin_url.rstrip('/')}/Library/Refresh"
+    url = f"{base_url}/Library/Refresh"
     async with httpx.AsyncClient(timeout=timeout) as client:
-        resp = await client.post(
-            url,
-            headers={"X-Emby-Token": settings.jellyfin_api_key},
-        )
+        resp = await client.post(url, headers={"X-Emby-Token": api_key})
         resp.raise_for_status()
     log.info("jellyfin_full_refresh_ok")
 
