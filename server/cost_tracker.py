@@ -105,9 +105,39 @@ COST_TABLE_CENTS_PER_MTOK: dict[str, tuple[int, int]] = {
 }
 
 
+def is_known_model(model: str) -> bool:
+    """True iff the cost tracker has explicit pricing for this model."""
+    return model in COST_TABLE_CENTS_PER_MTOK
+
+
+# One-shot warning so a misconfigured model doesn't fill the log with one
+# line per batch. Reset when the model name changes.
+_warned_unknown: set[str] = set()
+
+
 def estimate_cents(model: str, tokens_in: int, tokens_out: int) -> int:
-    """Best-effort cost estimate. Unknown models default to Sonnet pricing."""
-    in_rate, out_rate = COST_TABLE_CENTS_PER_MTOK.get(model, (300, 1500))
+    """Best-effort cost estimate.
+
+    Unknown models fall back to Sonnet pricing — but this is dangerous
+    when the actual provider charges Opus rates (e.g. user typed
+    'claude-opus-4-5' which Anthropic silently aliases to Opus). We
+    warn loudly on first encounter so operators notice the gap. Real
+    safety is the per-job + per-day caps, which are enforced on the
+    (under-)estimate, so a runaway is still bounded by your $-per-day
+    setting, just bounded with the wrong arithmetic.
+    """
+    rates = COST_TABLE_CENTS_PER_MTOK.get(model)
+    if rates is None:
+        if model not in _warned_unknown:
+            log.warning(
+                "cost_estimate_unknown_model",
+                model=model,
+                fallback="claude-sonnet-4-6 pricing (300/1500 per Mtok)",
+                hint="Add the model to COST_TABLE_CENTS_PER_MTOK or set LLM_MODEL to a known one. Daily cap will be enforced on the under-estimate.",
+            )
+            _warned_unknown.add(model)
+        rates = (300, 1500)
+    in_rate, out_rate = rates
     return (tokens_in * in_rate + tokens_out * out_rate) // 1_000_000
 
 

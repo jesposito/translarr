@@ -49,6 +49,11 @@
     kind: '',
     msg: '',
   });
+  let llmTesting = $state(false);
+  let llmResult = $state<{ kind: 'ok' | 'err' | ''; msg: string }>({
+    kind: '',
+    msg: '',
+  });
 
   // Per-field local edit buffer (string for inputs, boolean for toggles).
   // Mirrors the server's "value" but tracks uncommitted edits.
@@ -320,6 +325,45 @@
     }
   }
 
+  async function testLlm(): Promise<void> {
+    if (llmTesting) return;
+    llmTesting = true;
+    llmResult = { kind: '', msg: 'Pinging provider...' };
+    try {
+      const r = await fetch('/test/llm', { method: 'POST' });
+      const text = await r.text();
+      let data: Record<string, unknown> = {};
+      try {
+        data = text ? JSON.parse(text) : {};
+      } catch {
+        // non-JSON
+      }
+      if (r.ok && data.status === 'ok') {
+        const known = data.model_known_to_cost_tracker;
+        const sample = Array.isArray(data.output_lines) && data.output_lines[0];
+        const note = known
+          ? ''
+          : ' WARNING: this model is not in the cost tracker — your cost estimates may be inaccurate.';
+        llmResult = {
+          kind: 'ok',
+          msg: `OK. ${data.provider}:${data.model} returned: "${sample || '(empty)'}".${note}`,
+        };
+      } else {
+        llmResult = {
+          kind: 'err',
+          msg: typeof data.detail === 'string' ? data.detail : `HTTP ${r.status}`,
+        };
+      }
+    } catch (e) {
+      llmResult = {
+        kind: 'err',
+        msg: e instanceof Error ? e.message : String(e),
+      };
+    } finally {
+      llmTesting = false;
+    }
+  }
+
   // === Init ================================================================
 
   onMount(async () => {
@@ -339,6 +383,25 @@
   <p class="sub">
     Edit any value below to save it — changes apply immediately.
     API keys and other secrets are write-only; existing values are never shown.
+  </p>
+  <p class="head-actions">
+    <!-- data-sveltekit-reload forces a full page nav so the browser
+         streams the download; SvelteKit's SPA router would try to
+         intercept and choke on the .db response.
+         A11y minor: aria-describedby ties the link to its explanation;
+         sr-only suffix makes the .db file type explicit to SR users. -->
+    <a
+      class="btn btn-ghost btn-sm"
+      href="/backup"
+      download
+      data-sveltekit-reload
+      aria-describedby="backup-help"
+    >
+      Download backup<span class="sr-only"> (downloads a .db file)</span>
+    </a>
+    <span id="backup-help" class="muted small">
+      Saves a consistent snapshot of glossaries, series configs, jobs, and settings.
+    </span>
   </p>
 </header>
 
@@ -570,6 +633,26 @@
           >{ntfyResult.msg}</span>
         </div>
       {/if}
+      {#if section.id === 'llm'}
+        <div class="row-actions">
+          <button
+            type="button"
+            class="btn btn-ghost"
+            onclick={testLlm}
+            disabled={llmTesting}
+            title="Ping the provider with one line — verifies API key + model name before you queue a real translation"
+          >
+            {llmTesting ? 'Testing…' : 'Test provider + model'}
+          </button>
+          <span
+            class="test-result"
+            role={llmResult.kind === 'err' ? 'alert' : 'status'}
+            aria-live={llmResult.kind === 'err' ? 'assertive' : 'polite'}
+            aria-atomic="true"
+            class:error-inline={llmResult.kind === 'err'}
+          >{llmResult.msg}</span>
+        </div>
+      {/if}
     </section>
   {/each}
 {/if}
@@ -581,6 +664,13 @@
     color: var(--text-muted);
     font-size: var(--text-sm);
     max-width: 60ch;
+  }
+  .head-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    margin: var(--space-3) 0 0;
+    flex-wrap: wrap;
   }
   .restart-tag {
     display: inline-block;

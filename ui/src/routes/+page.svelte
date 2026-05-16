@@ -50,6 +50,31 @@
   let doneJobs = $state<Job[] | null>(null);
   let failedJobs = $state<Job[] | null>(null);
   let failuresOpen = $state(false);
+  // "Hide trivial jobs" filter — when ON, the Recent Completed table
+  // hides $0 skips (no-source-subs / already-done / bitmap-only). Lets
+  // users focus on real translation work without losing the audit trail
+  // (the rows still exist server-side, just not rendered here).
+  let hideTrivialJobs = $state(true);
+  const trivialFilter = (j: Job) =>
+    !hideTrivialJobs || j.cost_cents > 0 || (j.output_path && j.output_path.length > 0);
+  // A11y M2: announce filter state changes so SR users hear when the
+  // table collapses to empty (or expands) after a toggle.
+  let filterAnnouncement = $state('');
+
+  function onFilterToggle(): void {
+    queueMicrotask(() => {
+      if (!doneJobs) return;
+      const shown = doneJobs.filter(trivialFilter).length;
+      const hidden = doneJobs.length - shown;
+      if (hideTrivialJobs) {
+        filterAnnouncement = shown === 0
+          ? `All ${hidden} completed jobs hidden — they were all $0 skips.`
+          : `Showing ${shown} paid jobs. ${hidden} $0 skip${hidden === 1 ? '' : 's'} hidden.`;
+      } else {
+        filterAnnouncement = `Showing all ${doneJobs.length} completed jobs.`;
+      }
+    });
+  }
   let loadError = $state<string | null>(null);
   let lastLoadError = $state<string | null>(null);  // dedupe alert re-announce
   // Transition-only live announcement string. SR users hear about state
@@ -295,7 +320,18 @@
 </section>
 
 <section aria-labelledby="done-heading">
-  <h2 id="done-heading">Recent completed</h2>
+  <div class="section-head">
+    <h2 id="done-heading">Recent completed</h2>
+    <label class="filter-toggle">
+      <input type="checkbox" bind:checked={hideTrivialJobs} onchange={onFilterToggle} />
+      <span>Hide $0 skips</span>
+    </label>
+  </div>
+  <!-- A11y M2: SR-only live region announces filter state changes
+       (especially the "table collapsed to empty" case). -->
+  <div class="sr-only" role="status" aria-live="polite" aria-atomic="true">
+    {filterAnnouncement}
+  </div>
   {#if doneJobs === null}
     <div class="card" aria-hidden="true">
       {#each Array(3) as _}
@@ -304,6 +340,14 @@
     </div>
   {:else if doneJobs.length === 0}
     <div class="card empty"><p>No completed jobs yet.</p></div>
+  {:else if doneJobs.filter(trivialFilter).length === 0}
+    <div class="card empty">
+      <p>No paid translations in the recent window.</p>
+      <p class="muted small">
+        {doneJobs.length} $0 skip{doneJobs.length === 1 ? '' : 's'} hidden.
+        Uncheck "Hide $0 skips" to show them.
+      </p>
+    </div>
   {:else}
     <div class="card no-pad">
       <table>
@@ -318,7 +362,7 @@
           </tr>
         </thead>
         <tbody>
-          {#each doneJobs as job (job.id)}
+          {#each doneJobs.filter(trivialFilter) as job (job.id)}
             <tr>
               <td>
                 <span class="pill" data-state={job.state}>
@@ -455,6 +499,31 @@
   }
   @media (max-width: 480px) {
     .stat-row { grid-template-columns: 1fr; }
+  }
+
+  .section-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3);
+    margin-bottom: var(--space-2);
+    flex-wrap: wrap;
+  }
+  .filter-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    font-size: var(--text-sm);
+    color: var(--text-muted);
+    cursor: pointer;
+    user-select: none;
+    min-height: 32px;
+  }
+  .filter-toggle input[type="checkbox"] {
+    /* Use the platform checkbox — no styling fight, fully accessible by default. */
+    accent-color: var(--accent);
+    width: 16px;
+    height: 16px;
   }
 
   .live-region { min-height: 60px; }

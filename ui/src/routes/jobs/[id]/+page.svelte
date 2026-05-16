@@ -171,15 +171,16 @@
     if (!job || actionPending) return;
     actionPending = true;
     try {
-      const r = await fetch('/translate', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          media_path: job.media_path,
-          target_lang: job.target_lang
-        })
-      });
-      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      // POST /jobs/{id}/retry sets force=true on the new row so the
+      // pipeline re-runs even if the .translarr.srt already exists.
+      // This is the difference between "translate if missing" (POST
+      // /translate) and "translate it again with whatever model is
+      // configured now" (this).
+      const r = await fetch(`/jobs/${job.id}/retry`, { method: 'POST' });
+      if (!r.ok) {
+        const body = await r.json().catch(() => ({}));
+        throw new Error(body.detail || `HTTP ${r.status}`);
+      }
       const data = (await r.json()) as { job_id?: string };
       if (data.job_id) {
         showToast('success', `Re-queued as ${data.job_id.slice(0, 8)}.`);
@@ -363,15 +364,29 @@
       </button>
     {/if}
 
-    {#if ['failed', 'cancelled'].includes(job.state)}
+    {#if ['done', 'failed', 'cancelled'].includes(job.state)}
+      <!-- A11y M1: aria-describedby surfaces the "why" of the action to
+           SR users — important since the same control changes meaning
+           based on state (Re-translate on done, Retry on failed). -->
       <button
         type="button"
         class="btn btn-primary"
         onclick={retry}
         disabled={actionPending}
+        aria-describedby="retry-help"
+        title={job.state === 'done'
+          ? 'Re-translate this file (e.g. with a different model)'
+          : 'Re-enqueue this job with force=true'}
       >
-        {actionPending ? 'Retrying…' : 'Retry'}
+        {actionPending
+          ? 'Re-queuing…'
+          : (job.state === 'done' ? 'Re-translate' : 'Retry')}
       </button>
+      <span id="retry-help" class="sr-only">
+        {job.state === 'done'
+          ? 'Re-translates this completed file, for example with a different model.'
+          : 'Re-enqueues this job with force enabled.'}
+      </span>
     {/if}
   </section>
 {/if}

@@ -15,6 +15,9 @@ const config = {
       strict: false
     }),
     // SPA fallback so client-side routing works under FastAPI StaticFiles.
+    // handleHttpError stays 'warn' so the prerender crawl noting /backup
+    // and other backend-only routes as 404s doesn't fail the build —
+    // those routes only exist behind FastAPI at runtime.
     prerender: {
       handleHttpError: 'warn'
     }
