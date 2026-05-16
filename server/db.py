@@ -114,9 +114,30 @@ def _m002_app_settings(conn: sqlite3.Connection) -> None:
     )
 
 
+def _m003_glossaries(conn: sqlite3.Connection) -> None:
+    """Glossary entries for consistent name/term translation.
+
+    Each glossary has an id (scoped to a series or global), and entries
+    map a source term to a target-language translation.
+    """
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS glossaries (
+            id TEXT NOT NULL,
+            source_term TEXT NOT NULL,
+            target_lang TEXT NOT NULL DEFAULT 'en',
+            translation TEXT NOT NULL,
+            notes TEXT,
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL,
+            PRIMARY KEY (id, source_term, target_lang)
+        )
+    """)
+
+
 MIGRATIONS: list[tuple[int, str, callable]] = [
     (1, "initial schema (jobs + daily_usage)", _m001_initial),
     (2, "app_settings (runtime config overrides)", _m002_app_settings),
+    (3, "glossaries table", _m003_glossaries),
 ]
 
 
