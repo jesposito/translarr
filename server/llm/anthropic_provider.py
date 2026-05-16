@@ -2,7 +2,11 @@ from anthropic import AsyncAnthropic
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 from server.config import settings
-from server.llm.base import TRANSLATE_SYSTEM_PROMPT
+from server.llm.base import (
+    TRANSLATE_SYSTEM_PROMPT,
+    build_user_message,
+    reconcile_lines,
+)
 
 
 class AnthropicProvider:
@@ -23,33 +27,16 @@ class AnthropicProvider:
         prior_context: list[str] | None = None,
         glossary: dict[str, str] | None = None,
     ) -> list[str]:
-        system = TRANSLATE_SYSTEM_PROMPT.format(source_lang=source_lang, target_lang=target_lang)
-
-        user_parts: list[str] = []
-        if prior_context:
-            user_parts.append("Previously translated context:")
-            user_parts.extend(prior_context[-10:])
-            user_parts.append("---")
-        if glossary:
-            user_parts.append("Glossary (preserve these exactly):")
-            for src, dst in glossary.items():
-                user_parts.append(f"  {src} -> {dst}")
-            user_parts.append("---")
-        user_parts.append(f"Translate the following {len(lines)} lines:")
-        user_parts.extend(lines)
+        system = TRANSLATE_SYSTEM_PROMPT.format(
+            source_lang=source_lang, target_lang=target_lang
+        )
+        user_text = build_user_message(lines, prior_context, glossary)
 
         msg = await self.client.messages.create(
             model=self.model,
             max_tokens=4096,
             system=system,
-            messages=[{"role": "user", "content": "\n".join(user_parts)}],
+            messages=[{"role": "user", "content": user_text}],
         )
-        text = "".join(b.text for b in msg.content if hasattr(b, "text"))
-        out = [ln for ln in text.split("\n") if ln.strip()]
-        if len(out) != len(lines):
-            # Best-effort recovery: pad or truncate to keep alignment.
-            if len(out) < len(lines):
-                out += [""] * (len(lines) - len(out))
-            else:
-                out = out[: len(lines)]
-        return out
+        raw = "".join(b.text for b in msg.content if hasattr(b, "text"))
+        return reconcile_lines(raw.split("\n"), len(lines))
