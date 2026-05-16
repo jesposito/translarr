@@ -91,9 +91,9 @@ REGISTRY: dict[str, SettingMeta] = {
         type="str",
         section="llm",
         description="Which LLM service to use for translation.",
-        choices=["anthropic", "openai", "ollama"],
+        choices=["anthropic", "openai", "ollama", "deepseek", "gemini"],
         mutable=True,
-        hint="Takes effect on the next job. Anthropic gives the best translation quality; Ollama is free + local.",
+        hint="Takes effect on the next job. Anthropic gives the best translation quality; Ollama is free + local; DeepSeek is cheap with good quality; Gemini Flash is fast and cheap.",
     ),
     "llm_model": SettingMeta(
         key="llm_model",
@@ -308,6 +308,28 @@ PRESETS: dict[str, dict[str, Any]] = {
             "reading_rate_cps": 17,
             "context_window_lines": 10,
             "max_concurrent": 1,
+        },
+    },
+    "deepseek_budget": {
+        "label": "DeepSeek Budget",
+        "description": "DeepSeek V3 — excellent quality at a fraction of the cost. ~$0.10 per episode.",
+        "fields": {
+            "llm_provider": "deepseek",
+            "llm_model": "deepseek-chat",
+            "reading_rate_cps": 17,
+            "context_window_lines": 10,
+            "max_concurrent": 2,
+        },
+    },
+    "gemini_flash": {
+        "label": "Gemini Flash",
+        "description": "Google Gemini 2.5 Flash — fast and cheap with good translation quality. ~$0.08 per episode.",
+        "fields": {
+            "llm_provider": "gemini",
+            "llm_model": "gemini-2.5-flash",
+            "reading_rate_cps": 17,
+            "context_window_lines": 10,
+            "max_concurrent": 2,
         },
     },
 }

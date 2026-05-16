@@ -40,7 +40,7 @@ class TestPresets:
         r = client.get("/config/presets")
         assert r.status_code == 200
         names = {p["id"] for p in r.json()["presets"]}
-        assert names == {"quick_cheap", "balanced", "best_quality", "local_free"}
+        assert names == {"quick_cheap", "balanced", "best_quality", "local_free", "deepseek_budget", "gemini_flash"}
         # Each preset has label and description.
         for p in r.json()["presets"]:
             assert p["label"]

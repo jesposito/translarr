@@ -90,6 +90,13 @@ COST_TABLE_CENTS_PER_MTOK: dict[str, tuple[int, int]] = {
     "claude-haiku-4-5": (80, 400),
     "gpt-5.5": (100, 800),
     "gpt-4o-mini": (15, 60),
+    # DeepSeek (2026-05 pricing)
+    "deepseek-chat": (27, 110),
+    "deepseek-reasoner": (55, 219),
+    # Google Gemini (2026-05 pricing)
+    "gemini-2.5-flash": (15, 60),
+    "gemini-2.5-pro": (125, 1000),
+    "gemini-2.0-flash": (10, 40),
 }
 
 

@@ -28,12 +28,14 @@ Features:
   <Config Name="WebUI Port" Target="9000" Default="9100" Mode="tcp" Description="Web UI and API port" Type="Port" Display="always" Required="true">9100</Config>
   <Config Name="Media Library" Target="/media" Default="/mnt/user/media" Mode="rw" Description="Path to your media library (movies, TV shows)." Type="Path" Display="always" Required="true">/mnt/user/media</Config>
   <Config Name="Config / Data" Target="/data" Default="/mnt/user/appdata/translarr" Mode="rw" Description="Persistent storage for database and settings." Type="Path" Display="always" Required="true">/mnt/user/appdata/translarr</Config>
-  <Config Name="LLM Provider" Target="LLM_PROVIDER" Default="anthropic" Description="anthropic, openai, or ollama" Type="Variable" Display="always" Required="true">anthropic</Config>
+  <Config Name="LLM Provider" Target="LLM_PROVIDER" Default="anthropic" Description="anthropic, openai, ollama, deepseek, or gemini" Type="Variable" Display="always" Required="true">anthropic</Config>
   <Config Name="LLM Model" Target="LLM_MODEL" Default="claude-sonnet-4-6" Description="Model identifier" Type="Variable" Display="always" Required="false">claude-sonnet-4-6</Config>
   <Config Name="Anthropic API Key" Target="ANTHROPIC_API_KEY" Default="" Description="Required for Anthropic provider" Type="Variable" Display="always" Required="false" Mask="true"></Config>
   <Config Name="Target Language" Target="TARGET_LANG" Default="en" Description="ISO 639-1 code for target language" Type="Variable" Display="always" Required="false">en</Config>
   <Config Name="Daily Cost Cap (cents)" Target="MAX_COST_CENTS_PER_DAY" Default="1000" Description="Max daily spend in cents (1000 = $10)" Type="Variable" Display="always" Required="false">1000</Config>
   <Config Name="OpenAI API Key" Target="OPENAI_API_KEY" Default="" Description="Required for OpenAI provider" Type="Variable" Display="advanced" Required="false" Mask="true"></Config>
+  <Config Name="DeepSeek API Key" Target="DEEPSEEK_API_KEY" Default="" Description="Required for DeepSeek provider" Type="Variable" Display="advanced" Required="false" Mask="true"></Config>
+  <Config Name="Gemini API Key" Target="GEMINI_API_KEY" Default="" Description="Required for Gemini provider" Type="Variable" Display="advanced" Required="false" Mask="true"></Config>
   <Config Name="Per-Job Cost Cap (cents)" Target="MAX_COST_CENTS_PER_JOB" Default="500" Description="Max spend per translation (500 = $5)" Type="Variable" Display="advanced" Required="false">500</Config>
   <Config Name="Max Concurrent Jobs" Target="MAX_CONCURRENT" Default="2" Description="Parallel translations" Type="Variable" Display="advanced" Required="false">2</Config>
   <Config Name="Webhook Secret" Target="WEBHOOK_SECRET" Default="" Description="Shared secret for webhooks. Empty = no auth." Type="Variable" Display="advanced" Required="false" Mask="true"></Config>
