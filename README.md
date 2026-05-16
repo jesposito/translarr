@@ -12,6 +12,7 @@
 ![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)
 ![Tests](https://img.shields.io/badge/tests-210-green.svg)
 ![Status](https://img.shields.io/badge/status-alpha-yellow.svg)
+[![Join the Facet HQ Discord](https://img.shields.io/badge/Discord-Join%20Facet%20HQ-5865F2?logo=discord&logoColor=white)](https://discord.gg/XD8eUudnmf)
 
 Translarr is a self-hosted Docker container that plugs into Sonarr, Radarr, Emby, Jellyfin, and Plex. When an import lands with a subtitle track in the wrong language (Russian fansubs on a Japanese anime, hardcoded Spanish on a Korean drama, etc.), Translarr extracts the track, translates it with an LLM, adjusts the timing for the target language's reading speed, and writes a clean `.srt` next to the video.
 
