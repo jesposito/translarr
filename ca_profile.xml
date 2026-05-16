@@ -15,7 +15,8 @@ When an import lands with subtitles in the wrong language (Russian fansubs on a 
 - Web UI: dashboard, job history, settings, library browser, glossary editor
 - All settings are live-mutable, no container restart needed
   </Profile>
-  <Icon>https://raw.githubusercontent.com/jesposito/translarr/main/templates/translarr.svg</Icon>
+  <Icon>https://raw.githubusercontent.com/jesposito/translarr/main/icon.svg</Icon>
   <WebPage>https://github.com/jesposito/translarr</WebPage>
   <Support>https://github.com/jesposito/translarr/issues</Support>
+  <Forum>https://github.com/jesposito/translarr/discussions</Forum>
 </CommunityApplications>
