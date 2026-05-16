@@ -134,10 +134,36 @@ def _m003_glossaries(conn: sqlite3.Connection) -> None:
     """)
 
 
+def _m004_series_config(conn: sqlite3.Connection) -> None:
+    """Per-series language and translation overrides.
+
+    When a series is looked up by path prefix, its source_lang/target_lang
+    overrides the global defaults. The `id` matches glossary IDs so a series
+    can have both a glossary and language config under the same name.
+    """
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS series_config (
+            id TEXT PRIMARY KEY,
+            source_lang TEXT,
+            target_lang TEXT,
+            llm_provider TEXT,
+            llm_model TEXT,
+            path_prefix TEXT,
+            auto_translate INTEGER NOT NULL DEFAULT 0,
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL
+        )
+    """)
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_series_config_path ON series_config(path_prefix)"
+    )
+
+
 MIGRATIONS: list[tuple[int, str, callable]] = [
     (1, "initial schema (jobs + daily_usage)", _m001_initial),
     (2, "app_settings (runtime config overrides)", _m002_app_settings),
     (3, "glossaries table", _m003_glossaries),
+    (4, "series_config table (per-series overrides)", _m004_series_config),
 ]
 
 

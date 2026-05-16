@@ -31,18 +31,42 @@
     error?: string;
   }
 
+  interface SeriesMatch {
+    id: string;
+    source_lang: string | null;
+    target_lang: string | null;
+    path_prefix: string | null;
+    auto_translate: number;
+  }
+
   let currentPath = $state('');
   let data = $state<BrowseResult | null>(null);
   let loading = $state(false);
   let error = $state<string | null>(null);
-  // Breadcrumb segments derived from currentPath.
   let crumbs = $state<{ label: string; path: string }[]>([]);
+  let seriesMatch = $state<SeriesMatch | null>(null);
+  let seriesLoading = $state(false);
+  // Inline series config form.
+  let showSeriesForm = $state(false);
+  let seriesFormLang = $state('');
+  let seriesFormTarget = $state('');
+  let seriesFormId = $state('');
+  let seriesFormSaving = $state(false);
 
   function formatSize(bytes: number): string {
     if (bytes < 1024) return `${bytes} B`;
     if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
     if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
     return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
+  }
+
+  function dirName(path: string): string {
+    const parts = path.split('/').filter(Boolean);
+    return parts[parts.length - 1] || path;
+  }
+
+  function slugify(name: string): string {
+    return name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
   }
 
   function buildCrumbs(path: string): { label: string; path: string }[] {
@@ -60,6 +84,7 @@
   async function browse(path: string = '') {
     loading = true;
     error = null;
+    showSeriesForm = false;
     try {
       const url = path ? `/browse?path=${encodeURIComponent(path)}` : '/browse';
       const r = await fetch(url);
@@ -72,13 +97,59 @@
       data = result;
       currentPath = result.path === '/' ? '' : result.path;
       crumbs = buildCrumbs(result.path);
-      // Update URL without navigation.
       const params = path ? `?path=${encodeURIComponent(path)}` : '';
       window.history.replaceState({}, '', `/library${params}`);
+      // Look up series config for this path.
+      await lookupSeries(path);
     } catch (e) {
       error = e instanceof Error ? e.message : String(e);
     } finally {
       loading = false;
+    }
+  }
+
+  async function lookupSeries(path: string) {
+    if (!path) { seriesMatch = null; return; }
+    seriesLoading = true;
+    try {
+      const r = await fetch(`/series/lookup?path=${encodeURIComponent(path)}`);
+      if (!r.ok) { seriesMatch = null; return; }
+      const data = await r.json();
+      seriesMatch = data.match;
+    } catch {
+      seriesMatch = null;
+    } finally {
+      seriesLoading = false;
+    }
+  }
+
+  function openSeriesForm() {
+    seriesFormId = seriesMatch?.id || slugify(dirName(currentPath));
+    seriesFormLang = seriesMatch?.source_lang || '';
+    seriesFormTarget = seriesMatch?.target_lang || '';
+    showSeriesForm = true;
+  }
+
+  async function saveSeriesConfig() {
+    if (!seriesFormId.trim()) return;
+    seriesFormSaving = true;
+    try {
+      const r = await fetch(`/series/${encodeURIComponent(seriesFormId.trim())}`, {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          source_lang: seriesFormLang.trim() || null,
+          target_lang: seriesFormTarget.trim() || null,
+          path_prefix: currentPath,
+        }),
+      });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      showSeriesForm = false;
+      await lookupSeries(currentPath);
+    } catch (e) {
+      alert(e instanceof Error ? e.message : String(e));
+    } finally {
+      seriesFormSaving = false;
     }
   }
 
@@ -94,9 +165,7 @@
         throw new Error(body.detail || `HTTP ${r.status}`);
       }
       const result = await r.json();
-      // Refresh to show updated state.
       await browse(currentPath);
-      // Announce.
       alert(`Job queued: ${result.job_id || result.id || 'see Dashboard'}`);
     } catch (e) {
       alert(e instanceof Error ? e.message : String(e));
@@ -104,7 +173,6 @@
   }
 
   onMount(() => {
-    // Read initial path from URL query string.
     const params = new URLSearchParams(window.location.search);
     browse(params.get('path') || '');
   });
@@ -149,6 +217,60 @@
       <div class="cap-fill" style="width: {data.total_files > 0 ? (data.translated_files / data.total_files) * 100 : 0}%"></div>
     </div>
   </div>
+{/if}
+
+<!-- Series config bar: shown when browsing a directory with media files -->
+{#if data && (data.files.length > 0 || data.dirs.some(d => d.has_media)) && currentPath}
+  <div class="series-bar">
+    {#if seriesLoading}
+      <span class="muted">Checking series config…</span>
+    {:else if seriesMatch}
+      <div class="series-info">
+        <span class="series-label">Series:</span>
+        <strong>{seriesMatch.id}</strong>
+        {#if seriesMatch.source_lang}
+          <span class="muted">{seriesMatch.source_lang} → {seriesMatch.target_lang || 'en'}</span>
+        {/if}
+        <a href="/glossary?series={encodeURIComponent(seriesMatch.id)}" class="btn btn-ghost btn-sm">Glossary</a>
+        <button type="button" class="btn btn-ghost btn-sm" onclick={openSeriesForm}>Edit</button>
+      </div>
+    {:else}
+      <div class="series-info">
+        <span class="muted">No series config for this directory.</span>
+        <button type="button" class="btn btn-ghost btn-sm" onclick={openSeriesForm}>
+          Set up series
+        </button>
+      </div>
+    {/if}
+  </div>
+
+  {#if showSeriesForm}
+    <div class="card series-form">
+      <h3>Configure series</h3>
+      <p class="hint">
+        Set source/target language defaults for all files under this directory.
+        Also creates a glossary scoped to this series.
+      </p>
+      <div class="form-row">
+        <label for="series-id">Series ID</label>
+        <input id="series-id" type="text" bind:value={seriesFormId} placeholder="e.g. demon-slayer" />
+      </div>
+      <div class="form-row">
+        <label for="series-src">Source language</label>
+        <input id="series-src" type="text" bind:value={seriesFormLang} placeholder="e.g. ja, ko, ru (leave blank for auto)" />
+      </div>
+      <div class="form-row">
+        <label for="series-target">Target language</label>
+        <input id="series-target" type="text" bind:value={seriesFormTarget} placeholder="e.g. en (leave blank for default)" />
+      </div>
+      <div class="form-actions">
+        <button type="button" class="btn btn-primary" onclick={saveSeriesConfig} disabled={seriesFormSaving}>
+          {seriesFormSaving ? 'Saving…' : 'Save'}
+        </button>
+        <button type="button" class="btn btn-ghost" onclick={() => (showSeriesForm = false)}>Cancel</button>
+      </div>
+    </div>
+  {/if}
 {/if}
 
 <div class="listing" aria-busy={loading}>
@@ -288,6 +410,78 @@
     transition: width var(--dur) var(--ease);
   }
 
+  /* Series config bar */
+  .series-bar {
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    padding: var(--space-3) var(--space-4);
+    margin-bottom: var(--space-4);
+  }
+  .series-info {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    flex-wrap: wrap;
+  }
+  .series-label {
+    font-size: var(--text-sm);
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    font-weight: 500;
+  }
+  .series-info strong {
+    color: var(--accent);
+  }
+
+  /* Series form */
+  .series-form {
+    margin-bottom: var(--space-4);
+  }
+  .series-form h3 {
+    margin-bottom: var(--space-2);
+  }
+  .hint {
+    color: var(--text-muted);
+    font-size: var(--text-sm);
+    margin-bottom: var(--space-4);
+  }
+  .form-row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    margin-bottom: var(--space-3);
+  }
+  .form-row label {
+    font-size: var(--text-sm);
+    font-weight: 500;
+    min-width: 130px;
+    color: var(--text-muted);
+  }
+  .form-row input {
+    flex: 1;
+    max-width: 300px;
+    background: var(--bg-input);
+    color: var(--text);
+    border: 1px solid var(--border-input);
+    border-radius: var(--radius-sm);
+    padding: var(--space-2) var(--space-3);
+    font-family: inherit;
+    font-size: var(--text-sm);
+    min-height: 36px;
+  }
+  .form-row input:focus {
+    border-color: var(--accent);
+    outline: 2px solid var(--accent);
+    outline-offset: 0;
+  }
+  .form-actions {
+    display: flex;
+    gap: var(--space-3);
+    margin-top: var(--space-3);
+  }
+
   /* Rows */
   .listing {
     display: flex;
@@ -359,4 +553,14 @@
 
   .muted { color: var(--text-muted); }
   .small { font-size: var(--text-sm); }
+
+  @media (max-width: 768px) {
+    .form-row {
+      flex-direction: column;
+      align-items: flex-start;
+    }
+    .form-row input {
+      max-width: 100%;
+    }
+  }
 </style>
