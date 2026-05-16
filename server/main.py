@@ -20,7 +20,7 @@ from server.subs.pipeline import (
     _load_subs_with_encoding_fallback,
     _output_path,
 )
-from server.webhooks import emby, jellyfin, radarr, sonarr
+from server.webhooks import emby, jellyfin, plex, radarr, sonarr
 
 logging.basicConfig(level=settings.log_level)
 log = structlog.get_logger()
@@ -55,6 +55,7 @@ app.include_router(radarr.router, prefix="/webhooks", tags=["webhooks"])
 app.include_router(sonarr.router, prefix="/webhooks", tags=["webhooks"])
 app.include_router(emby.router, prefix="/webhooks", tags=["webhooks"])
 app.include_router(jellyfin.router, prefix="/webhooks", tags=["webhooks"])
+app.include_router(plex.router, prefix="/webhooks", tags=["webhooks"])
 
 
 @app.get("/health", response_model=HealthResponse)

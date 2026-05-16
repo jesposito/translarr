@@ -39,31 +39,70 @@ def _none_configured(monkeypatch):
 
 
 @respx.mock
-async def test_refresh_emby_posts_to_correct_url_with_api_key(_emby_configured):
-    route = respx.post("http://AnsibleMedia:8096/emby/Library/Refresh").mock(
+async def test_refresh_emby_item_specific_with_api_key(_emby_configured):
+    """Item-specific refresh: lookup returns an item ID, refresh that item."""
+    # Mock the Items lookup to return an item ID.
+    respx.get("http://AnsibleMedia:8096/emby/Items").mock(
+        return_value=httpx.Response(200, json={"Items": [{"Id": "item123"}]})
+    )
+    refresh_route = respx.post("http://AnsibleMedia:8096/emby/Items/item123/Refresh").mock(
         return_value=httpx.Response(204)
     )
 
-    await library_refresh._refresh_emby()
+    await library_refresh._refresh_emby_item("Movies/test.mkv")
 
-    assert route.called
-    req = route.calls[0].request
-    assert req.method == "POST"
+    assert refresh_route.called
+    req = refresh_route.calls[0].request
     assert "api_key=embykey123" in str(req.url)
 
 
 @respx.mock
-async def test_refresh_jellyfin_posts_with_emby_token_header(_jellyfin_configured):
-    route = respx.post("http://jellyfin:8096/Library/Refresh").mock(
+async def test_refresh_emby_fallback_to_full_scan(_emby_configured):
+    """When item lookup returns nothing, fall back to full library scan."""
+    respx.get("http://AnsibleMedia:8096/emby/Items").mock(
+        return_value=httpx.Response(200, json={"Items": []})
+    )
+    full_route = respx.post("http://AnsibleMedia:8096/emby/Library/Refresh").mock(
         return_value=httpx.Response(204)
     )
 
-    await library_refresh._refresh_jellyfin()
+    await library_refresh._refresh_emby_item("Movies/test.mkv")
 
-    assert route.called
-    req = route.calls[0].request
-    assert req.method == "POST"
+    assert full_route.called
+    assert "api_key=embykey123" in str(full_route.calls[0].request.url)
+
+
+@respx.mock
+async def test_refresh_jellyfin_item_specific(_jellyfin_configured):
+    """Item-specific Jellyfin refresh."""
+    respx.get("http://jellyfin:8096/Items").mock(
+        return_value=httpx.Response(200, json={"Items": [{"Id": "jfitem456"}]})
+    )
+    refresh_route = respx.post("http://jellyfin:8096/Items/jfitem456/Refresh").mock(
+        return_value=httpx.Response(204)
+    )
+
+    await library_refresh._refresh_jellyfin_item("TV/test.mkv")
+
+    assert refresh_route.called
+    req = refresh_route.calls[0].request
     assert req.headers.get("X-Emby-Token") == "jfkey456"
+
+
+@respx.mock
+async def test_refresh_jellyfin_fallback_to_full_scan(_jellyfin_configured):
+    """When item lookup returns nothing, fall back to full library scan."""
+    respx.get("http://jellyfin:8096/Items").mock(
+        return_value=httpx.Response(200, json={"Items": []})
+    )
+    full_route = respx.post("http://jellyfin:8096/Library/Refresh").mock(
+        return_value=httpx.Response(204)
+    )
+
+    await library_refresh._refresh_jellyfin_item("TV/test.mkv")
+
+    assert full_route.called
+    assert full_route.calls[0].request.headers.get("X-Emby-Token") == "jfkey456"
 
 
 async def test_refresh_libraries_after_noop_when_unconfigured(_none_configured):
@@ -75,6 +114,10 @@ async def test_refresh_libraries_after_noop_when_unconfigured(_none_configured):
 
 @respx.mock
 async def test_emby_http_500_is_logged_not_raised(_emby_configured):
+    # Item lookup returns nothing, full scan returns 500.
+    respx.get("http://AnsibleMedia:8096/emby/Items").mock(
+        return_value=httpx.Response(200, json={"Items": []})
+    )
     respx.post("http://AnsibleMedia:8096/emby/Library/Refresh").mock(
         return_value=httpx.Response(500, text="boom")
     )
@@ -85,6 +128,10 @@ async def test_emby_http_500_is_logged_not_raised(_emby_configured):
 
 @respx.mock
 async def test_jellyfin_http_500_is_logged_not_raised(_jellyfin_configured):
+    # Item lookup returns nothing, full scan returns 500.
+    respx.get("http://jellyfin:8096/Items").mock(
+        return_value=httpx.Response(200, json={"Items": []})
+    )
     respx.post("http://jellyfin:8096/Library/Refresh").mock(
         return_value=httpx.Response(500, text="boom")
     )
@@ -96,7 +143,7 @@ async def test_jellyfin_http_500_is_logged_not_raised(_jellyfin_configured):
 async def test_refresh_bounded_by_timeout(monkeypatch, _emby_configured):
     # Set a tiny timeout and have respx raise httpx.TimeoutException.
     monkeypatch.setattr(settings, "library_refresh_timeout_seconds", 1)
-    respx.post("http://AnsibleMedia:8096/emby/Library/Refresh").mock(
+    respx.get("http://AnsibleMedia:8096/emby/Items").mock(
         side_effect=httpx.ReadTimeout("simulated timeout")
     )
 
@@ -111,14 +158,18 @@ async def test_refresh_libraries_after_calls_both_when_configured(monkeypatch):
     monkeypatch.setattr(settings, "jellyfin_url", "http://jellyfin:8096")
     monkeypatch.setattr(settings, "jellyfin_api_key", "jfkey456")
 
-    emby_route = respx.post("http://AnsibleMedia:8096/emby/Library/Refresh").mock(
+    # Both return empty items → fall back to full scan.
+    respx.get("http://AnsibleMedia:8096/emby/Items").mock(
+        return_value=httpx.Response(200, json={"Items": [{"Id": "e1"}]})
+    )
+    respx.post("http://AnsibleMedia:8096/emby/Items/e1/Refresh").mock(
         return_value=httpx.Response(204)
     )
-    jf_route = respx.post("http://jellyfin:8096/Library/Refresh").mock(
+    respx.get("http://jellyfin:8096/Items").mock(
+        return_value=httpx.Response(200, json={"Items": [{"Id": "j1"}]})
+    )
+    respx.post("http://jellyfin:8096/Items/j1/Refresh").mock(
         return_value=httpx.Response(204)
     )
 
     await library_refresh.refresh_libraries_after(Path("/tmp/x.en.translarr.srt"))
-
-    assert emby_route.called
-    assert jf_route.called

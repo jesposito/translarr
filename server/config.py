@@ -7,11 +7,13 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
-    llm_provider: Literal["anthropic", "openai", "ollama"] = "anthropic"
+    llm_provider: Literal["anthropic", "openai", "ollama", "deepseek", "gemini"] = "anthropic"
     llm_model: str = "claude-sonnet-4-6"
 
     anthropic_api_key: str | None = None
     openai_api_key: str | None = None
+    deepseek_api_key: str | None = None
+    gemini_api_key: str | None = None
     ollama_host: str = "http://ollama:11434"
 
     media_root: Path = Path("/media")
