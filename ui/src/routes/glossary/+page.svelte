@@ -14,13 +14,31 @@
     notes: string | null;
   }
 
+  interface Candidate {
+    name: string;          // display name (directory basename)
+    path: string;          // path relative to MEDIA_ROOT
+    kind: string;          // parent category, e.g. "Movies" / "TV"; "" for flat layout
+    glossary_id: string;   // slugified ID — what we'd use if you pick this
+    glossary_entry_count: number;
+    has_series_config: boolean;
+  }
+
   let glossaries = $state<GlossarySummary[]>([]);
   let selectedId = $state<string | null>(null);
+  let selectedTitle = $state<string | null>(null); // human title for the picked candidate
   let entries = $state<GlossaryEntry[]>([]);
   let loading = $state(false);
   let entriesLoading = $state(false);
   let error = $state<string | null>(null);
   let entryError = $state<string | null>(null);
+
+  // Picker state — Option B from the design discussion.
+  let pickerQuery = $state('');
+  let pickerResults = $state<Candidate[]>([]);
+  let pickerLoading = $state(false);
+  let pickerDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+  let advancedOpen = $state(false); // "Create with custom ID" disclosure
+  let pickerCount = $state(0); // how many results came back (for SR + display)
 
   // New entry form.
   let newSource = $state('');
@@ -28,7 +46,6 @@
   let newTargetLang = $state('en');
   let newNotes = $state('');
   let newGlossaryId = $state('');
-  let creating = $state(false);
 
   // Bulk import.
   let importOpen = $state(false);
@@ -59,8 +76,17 @@
     }
   }
 
-  async function selectGlossary(id: string) {
+  async function selectGlossary(id: string, title?: string) {
     selectedId = id;
+    // If the caller didn't pass a friendly title, see if we can recover
+    // one from the picker results (case: user clicked an entry in the
+    // "Existing glossaries" disclosure rather than via the picker).
+    if (title) {
+      selectedTitle = title;
+    } else {
+      const match = pickerResults.find((c) => c.glossary_id === id);
+      selectedTitle = match?.name ?? null;
+    }
     entriesLoading = true;
     entryError = null;
     try {
@@ -73,6 +99,40 @@
     } finally {
       entriesLoading = false;
     }
+  }
+
+  // Picker — server-side substring search over the real media library.
+  // Debounced so typing doesn't fire 8 requests/second.
+  async function searchPicker(query: string) {
+    pickerLoading = true;
+    try {
+      const url = `/series/candidates?q=${encodeURIComponent(query)}&limit=50`;
+      const r = await fetch(url);
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const data = await r.json();
+      pickerResults = data.candidates || [];
+      pickerCount = pickerResults.length;
+    } catch (e) {
+      // Picker errors land in the page-level error banner — they're
+      // not entry-specific.
+      error = e instanceof Error ? e.message : String(e);
+      pickerResults = [];
+      pickerCount = 0;
+    } finally {
+      pickerLoading = false;
+    }
+  }
+
+  function onPickerInput() {
+    // Debounce — wait 150ms after the last keystroke.
+    if (pickerDebounceTimer) clearTimeout(pickerDebounceTimer);
+    pickerDebounceTimer = setTimeout(() => searchPicker(pickerQuery), 150);
+  }
+
+  function pickCandidate(c: Candidate) {
+    // Selecting a candidate opens its glossary (which may be empty —
+    // adding the first entry creates the glossary row implicitly).
+    selectGlossary(c.glossary_id, c.name);
   }
 
   async function addEntry() {
@@ -196,11 +256,13 @@
 
   onMount(async () => {
     await loadGlossaries();
+    // Prime the picker with the first 50 candidates so the empty state
+    // already shows users what's in their library.
+    await searchPicker('');
     // If URL has ?series=<id>, auto-select that glossary.
     const params = new URLSearchParams(window.location.search);
     const seriesParam = params.get('series');
     if (seriesParam) {
-      selectedId = seriesParam;
       await selectGlossary(seriesParam);
     }
   });
@@ -222,72 +284,160 @@
 {/if}
 
 <div class="layout">
-  <!-- Left panel: glossary list -->
-  <section class="panel" aria-labelledby="list-heading">
+  <!-- Left panel: picker + existing glossaries -->
+  <section class="panel" aria-labelledby="picker-heading">
     <div class="panel-head">
-      <h2 id="list-heading">Glossaries</h2>
+      <h2 id="picker-heading">Pick a series or film</h2>
+    </div>
+    <p class="hint">
+      Search your library. Pick a title to start a glossary of character
+      names, attack names, and other terms that should stay consistent
+      across episodes.
+    </p>
+
+    <div class="picker">
+      <label for="picker-input" class="sr-only">Filter by title</label>
+      <!-- A11y minor #2: aria-controls IDREF would be broken in the
+           skeleton / empty states because the list only exists in the
+           {:else} branch. Drop it — the list immediately follows in
+           DOM order so the implicit relationship is clear.
+           A11y minor #5: Escape clears the filter (no native click on
+           the browser's ✕ clear button reliably fires oninput). -->
+      <input
+        id="picker-input"
+        type="search"
+        placeholder="Start typing a title…"
+        bind:value={pickerQuery}
+        oninput={onPickerInput}
+        onkeydown={(e) => {
+          if (e.key === 'Escape' && pickerQuery) {
+            pickerQuery = '';
+            searchPicker('');
+            e.stopPropagation();
+          }
+        }}
+        autocomplete="off"
+        aria-describedby="picker-count"
+      />
+      <!-- A11y minor #3: avoid the U+2026 ellipsis which some older TTS
+           engines (JAWS profiles) read as "dot dot dot". -->
+      <p id="picker-count" class="hint sr-only" aria-live="polite" aria-atomic="true">
+        {pickerLoading ? 'Searching' : `${pickerCount} ${pickerCount === 1 ? 'match' : 'matches'}`}
+      </p>
+      <!-- A11y MAJOR (audit finding 1): announce when the right panel's
+           selected glossary changes. Without this, picking a result
+           feels silent to a screen reader user — the picker keeps focus
+           and the only update is in a different region. -->
+      <p id="picker-selection-status" class="sr-only" aria-live="polite" aria-atomic="true">
+        {selectedTitle ? `Loaded glossary for ${selectedTitle}.` : ''}
+      </p>
+
+      {#if pickerLoading && pickerResults.length === 0}
+        <div class="card" aria-hidden="true">
+          <div class="skeleton" style="width: 70%; height: 14px; margin-bottom: 8px;"></div>
+          <div class="skeleton" style="width: 50%; height: 12px;"></div>
+        </div>
+      {:else if pickerResults.length === 0 && pickerQuery}
+        <p class="muted picker-empty">No titles match "{pickerQuery}".</p>
+      {:else if pickerResults.length === 0}
+        <p class="muted picker-empty">
+          No series or films found in your media library.
+          Add some media under MEDIA_ROOT first.
+        </p>
+      {:else}
+        <ul id="picker-list" class="picker-list" aria-label="Series and film results">
+          {#each pickerResults as c (c.path)}
+            <li>
+              <button
+                type="button"
+                class="picker-item"
+                class:selected={selectedId === c.glossary_id}
+                onclick={() => pickCandidate(c)}
+                aria-current={selectedId === c.glossary_id ? 'true' : undefined}
+              >
+                <span class="picker-row1">
+                  <span class="picker-name">{c.name}</span>
+                  {#if c.kind}<span class="picker-kind">{c.kind}</span>{/if}
+                </span>
+                <span class="picker-row2">
+                  {#if c.glossary_entry_count > 0}
+                    <span class="picker-count">
+                      {c.glossary_entry_count} {c.glossary_entry_count === 1 ? 'entry' : 'entries'}
+                    </span>
+                  {:else}
+                    <span class="muted">No glossary yet</span>
+                  {/if}
+                  {#if c.has_series_config}
+                    <span class="badge-config">series config</span>
+                  {/if}
+                </span>
+              </button>
+            </li>
+          {/each}
+        </ul>
+      {/if}
+    </div>
+
+    <details class="advanced-create" bind:open={advancedOpen}>
+      <summary>Advanced: create with a custom ID</summary>
+      <p class="hint">
+        Use this if the glossary isn't tied to a specific title — e.g. a
+        global term dictionary shared across shows. The ID becomes the URL
+        slug. Lowercase letters, numbers, and hyphens only.
+      </p>
       <div class="create-row">
-        <!-- M8 (a11y audit): explicit label paired with the input; placeholders disappear on focus and aren't reliable labels. -->
-        <label for="new-glossary-id" class="sr-only">New glossary ID</label>
+        <label for="new-glossary-id" class="sr-only">Custom glossary ID</label>
         <input
           id="new-glossary-id"
           type="text"
-          placeholder="New glossary ID…"
+          placeholder="e.g. anime-shared-terms"
           bind:value={newGlossaryId}
           onkeydown={(e) => e.key === 'Enter' && createGlossary()}
         />
-        <button type="button" class="btn btn-primary" onclick={createGlossary} disabled={!newGlossaryId.trim()}>
+        <button type="button" class="btn btn-primary btn-sm" onclick={createGlossary} disabled={!newGlossaryId.trim()}>
           Create
         </button>
       </div>
-    </div>
+    </details>
 
-    {#if loading}
-      <div class="card" aria-hidden="true">
-        <div class="skeleton" style="width: 80%; height: 16px; margin-bottom: 10px;"></div>
-        <div class="skeleton" style="width: 60%; height: 12px;"></div>
-      </div>
-    {:else if glossaries.length === 0}
-      <div class="card empty">
-        <p>No glossaries yet.</p>
-        <p class="muted">Create one above to start building term dictionaries.</p>
-      </div>
-    {:else}
-      <ul class="glossary-list">
-        {#each glossaries as g (g.id)}
-          <li>
-            <!-- M9 (a11y audit): aria-current="true" is the right semantic
-                 for "this is the active list item". aria-pressed implies
-                 a toggle button which this is not. -->
-            <button
-              type="button"
-              class="glossary-item"
-              class:selected={selectedId === g.id}
-              onclick={() => selectGlossary(g.id)}
-              aria-current={selectedId === g.id ? 'true' : undefined}
-            >
-              <span class="g-name">{g.id}</span>
-              <span class="g-meta">{g.entry_count} entries · {relTime(g.last_updated)}</span>
-            </button>
-            <button
-              type="button"
-              class="btn-icon"
-              aria-label="Delete glossary {g.id}"
-              onclick={() => requestDeleteGlossary(g.id)}
-            >✕</button>
-            {#if pendingDeleteId === g.id}
-              <!-- C3 (a11y audit): inline accessible confirm. role=alertdialog so SR announces. -->
-              <div class="confirm-row" role="alertdialog" aria-labelledby="confirm-label-{g.id}">
-                <span id="confirm-label-{g.id}">
-                  Delete "{g.id}"? Cannot be undone.
-                </span>
-                <button type="button" class="btn btn-danger btn-sm" onclick={confirmDeleteGlossary}>Delete</button>
-                <button type="button" class="btn btn-ghost btn-sm" onclick={() => (pendingDeleteId = null)}>Cancel</button>
-              </div>
-            {/if}
-          </li>
-        {/each}
-      </ul>
+    {#if glossaries.length > 0}
+      <details class="existing-list" open>
+        <summary>
+          Existing glossaries
+          <span class="muted">({glossaries.length})</span>
+        </summary>
+        <ul class="glossary-list">
+          {#each glossaries as g (g.id)}
+            <li>
+              <button
+                type="button"
+                class="glossary-item"
+                class:selected={selectedId === g.id}
+                onclick={() => selectGlossary(g.id)}
+                aria-current={selectedId === g.id ? 'true' : undefined}
+              >
+                <span class="g-name">{g.id}</span>
+                <span class="g-meta">{g.entry_count} entries · {relTime(g.last_updated)}</span>
+              </button>
+              <button
+                type="button"
+                class="btn-icon"
+                aria-label="Delete glossary {g.id}"
+                onclick={() => requestDeleteGlossary(g.id)}
+              >✕</button>
+              {#if pendingDeleteId === g.id}
+                <div class="confirm-row" role="alertdialog" aria-labelledby="confirm-label-{g.id}">
+                  <span id="confirm-label-{g.id}">
+                    Delete "{g.id}"? Cannot be undone.
+                  </span>
+                  <button type="button" class="btn btn-danger btn-sm" onclick={confirmDeleteGlossary}>Delete</button>
+                  <button type="button" class="btn btn-ghost btn-sm" onclick={() => (pendingDeleteId = null)}>Cancel</button>
+                </div>
+              {/if}
+            </li>
+          {/each}
+        </ul>
+      </details>
     {/if}
   </section>
 
@@ -295,11 +445,18 @@
   <section class="panel" aria-labelledby="entries-heading">
     {#if !selectedId}
       <div class="card empty placeholder">
-        <p>Select a glossary to view entries.</p>
+        <p>
+          Pick a series or film on the left to start editing its glossary.
+        </p>
       </div>
     {:else}
       <div class="panel-head">
-        <h2 id="entries-heading">{selectedId}</h2>
+        <h2 id="entries-heading">
+          {selectedTitle ?? selectedId}
+          {#if selectedTitle}
+            <span class="g-meta-inline mono">({selectedId})</span>
+          {/if}
+        </h2>
         <button
           type="button"
           class="btn btn-ghost"
@@ -487,6 +644,162 @@
     font-family: inherit;
     font-size: var(--text-sm);
     min-height: 36px;
+  }
+
+  /* Picker — server-side search over the real library tree */
+  .picker {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    margin-bottom: var(--space-4);
+  }
+  .picker input[type="search"] {
+    width: 100%;
+    padding: var(--space-2) var(--space-3);
+    background: var(--bg);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-sm);
+    color: var(--text);
+    font-size: var(--text-sm);
+    min-height: 44px;
+  }
+  .picker input[type="search"]:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+  .picker-empty {
+    margin: var(--space-2) 0 0;
+    font-size: var(--text-sm);
+  }
+  .picker-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    max-height: 420px;
+    overflow-y: auto;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--bg);
+  }
+  .picker-item {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: var(--space-2) var(--space-3);
+    border: 0;
+    background: transparent;
+    color: var(--text);
+    text-align: left;
+    cursor: pointer;
+    min-height: 44px;
+    border-radius: var(--radius-sm);
+  }
+  .picker-item:hover {
+    background: var(--bg-elevated-hover);
+  }
+  .picker-item:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: -2px;
+  }
+  .picker-item.selected {
+    background: var(--bg-elevated-hover);
+    border-left: 2px solid var(--accent);
+    padding-left: calc(var(--space-3) - 2px);
+  }
+  /* A11y minor #4: stronger visual weight on the selected name so the
+     selected vs hover distinction is obvious at a glance. */
+  .picker-item.selected .picker-name {
+    font-weight: 600;
+  }
+  .picker-row1 {
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-2);
+    flex-wrap: wrap;
+  }
+  .picker-name {
+    font-weight: 500;
+  }
+  .picker-kind {
+    font-size: var(--text-xs);
+    color: var(--text-muted);
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    padding: 1px 6px;
+    border-radius: var(--radius-sm);
+  }
+  .picker-row2 {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    font-size: var(--text-xs);
+    color: var(--text-muted);
+  }
+  .picker-count {
+    color: var(--success);
+  }
+  .badge-config {
+    font-size: var(--text-xs);
+    background: color-mix(in srgb, var(--accent) 16%, transparent);
+    color: var(--accent);
+    border-radius: var(--radius-sm);
+    padding: 1px 6px;
+  }
+
+  /* Advanced disclosure for custom-ID create */
+  .advanced-create {
+    margin-top: var(--space-4);
+    padding: var(--space-3);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--bg-elevated);
+  }
+  .advanced-create summary {
+    cursor: pointer;
+    font-size: var(--text-sm);
+    font-weight: 500;
+    color: var(--text-muted);
+  }
+  .advanced-create summary:hover { color: var(--text); }
+  .advanced-create .hint {
+    margin: var(--space-2) 0;
+  }
+  .advanced-create .create-row {
+    display: flex;
+    gap: var(--space-2);
+    margin: 0;
+  }
+  .advanced-create input {
+    flex: 1;
+    min-height: 36px;
+  }
+
+  /* Existing glossaries collapsible */
+  .existing-list {
+    margin-top: var(--space-4);
+  }
+  .existing-list summary {
+    cursor: pointer;
+    font-size: var(--text-sm);
+    font-weight: 600;
+    color: var(--text);
+    padding: var(--space-2) 0;
+  }
+  .existing-list summary:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    border-radius: var(--radius-sm);
+  }
+
+  .g-meta-inline {
+    font-size: var(--text-xs);
+    color: var(--text-muted);
+    font-weight: 400;
+    margin-left: var(--space-2);
   }
 
   /* Glossary list */

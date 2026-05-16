@@ -731,6 +731,25 @@ async def lookup_series(path: str = Query(..., description="Media path to look u
     return {"match": cfg}
 
 
+@app.get("/series/candidates")
+async def series_candidates(
+    q: str = Query(default="", description="Case-insensitive substring filter."),
+    limit: int = Query(default=50, ge=1, le=200),
+) -> dict:
+    """Searchable list of series / films discoverable in MEDIA_ROOT.
+
+    Powers the Glossary page's "Pick a series" picker so users don't
+    have to invent a glossary ID. Server-side filter scales to libraries
+    with thousands of titles (the cached FS scan stays bounded). Each
+    result is annotated with glossary entry count and whether a series
+    config exists so the picker can render "12 entries" or "no glossary
+    yet" inline.
+    """
+    from server.candidates import search_candidates
+
+    return {"candidates": search_candidates(q, limit)}
+
+
 @app.get("/series/{series_id}")
 async def get_series(series_id: str) -> dict:
     """Get a series config."""
