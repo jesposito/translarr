@@ -8,6 +8,7 @@ import pysubs2
 import structlog
 
 from server import cost_tracker, library_refresh
+from server.async_utils import fire_and_forget
 from server.config import settings
 from server.llm.router import get_provider
 from server.models import TranslateRequest, TranslateResponse
@@ -18,10 +19,6 @@ log = structlog.get_logger()
 
 
 SUB_EXTENSIONS = {".srt", ".ass", ".ssa", ".vtt", ".sub"}
-
-# Holds strong refs to fire-and-forget background tasks so they survive GC
-# until they complete. Tasks self-remove via add_done_callback below.
-_BACKGROUND_TASKS: set[asyncio.Task] = set()
 
 
 class AlreadyTranslated(Exception):
@@ -210,9 +207,7 @@ async def translate_media(req: TranslateRequest) -> TranslateResponse:
     cost_tracker.record(cost_cents)
 
     # Library refresh — fire-and-forget so it doesn't block job completion.
-    _bg = asyncio.create_task(library_refresh.refresh_libraries_after(out_path))
-    _BACKGROUND_TASKS.add(_bg)
-    _bg.add_done_callback(_BACKGROUND_TASKS.discard)
+    fire_and_forget(library_refresh.refresh_libraries_after(out_path))
 
     log.info(
         "translated",

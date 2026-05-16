@@ -26,9 +26,11 @@ def _quiet_ntfy(monkeypatch):
 
 
 async def _drain_pending() -> None:
-    """Wait for fire-and-forget tasks (notifications._PENDING) to complete."""
+    """Wait for fire-and-forget tasks (server.async_utils._PENDING) to complete."""
+    from server.async_utils import pending_count
+
     for _ in range(20):
-        if not notifications._PENDING:
+        if pending_count() == 0:
             return
         await asyncio.sleep(0.02)
 
@@ -41,7 +43,8 @@ async def test_no_url_means_no_op(monkeypatch):
         media_path="/m/x.mkv", target_lang="en", cost_cents=30, duration_s=12.0
     )
     await _drain_pending()
-    assert not notifications._PENDING
+    from server.async_utils import pending_count
+    assert pending_count() == 0
 
 
 @pytest.mark.asyncio
@@ -122,4 +125,5 @@ async def test_http_error_does_not_raise(monkeypatch):
             media_path="/m/x.mkv", target_lang="en", cost_cents=0, duration_s=0.0
         )
         await _drain_pending()
-    assert not notifications._PENDING
+    from server.async_utils import pending_count
+    assert pending_count() == 0
