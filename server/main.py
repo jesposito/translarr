@@ -166,6 +166,19 @@ async def translate(req: TranslateRequest) -> dict:
     """
     target_lang = req.target_lang or settings.target_lang
     media_path_str = str(req.media_path)
+
+    # Apply per-series overrides for fields the caller didn't explicitly set.
+    from server.series_config import lookup_by_path
+
+    series = lookup_by_path(media_path_str)
+    if series:
+        if not req.target_lang and series.get("target_lang"):
+            target_lang = series["target_lang"]
+        if not req.source_lang and series.get("source_lang"):
+            req.source_lang = series["source_lang"]
+        if not req.glossary_id and series.get("id"):
+            req.glossary_id = series["id"]
+
     dedup_key = compute_dedup_key(media_path_str, req.source_track_index, target_lang)
 
     q = get_queue()
@@ -417,6 +430,19 @@ async def translate_sync(req: TranslateRequest) -> dict:
     """
     target_lang = req.target_lang or settings.target_lang
     media_path_str = str(req.media_path)
+
+    # Apply per-series overrides (same logic as /translate).
+    from server.series_config import lookup_by_path
+
+    series = lookup_by_path(media_path_str)
+    if series:
+        if not req.target_lang and series.get("target_lang"):
+            target_lang = series["target_lang"]
+        if not req.source_lang and series.get("source_lang"):
+            req.source_lang = series["source_lang"]
+        if not req.glossary_id and series.get("id"):
+            req.glossary_id = series["id"]
+
     dedup_key = compute_dedup_key(media_path_str, req.source_track_index, target_lang)
 
     log.info(
@@ -650,6 +676,70 @@ async def import_glossary(glossary_id: str, body: dict) -> dict:
         raise HTTPException(status_code=400, detail="no entries provided")
     count = import_entries(glossary_id, entries, target_lang=body.get("target_lang", "en"))
     return {"status": "ok", "imported": count}
+
+
+# --- Series config (per-series language overrides) ------------------------
+
+
+@app.get("/series")
+async def list_series() -> dict:
+    """List all series configs with per-series overrides."""
+    from server.series_config import list_series as _list
+
+    return {"series": _list()}
+
+
+@app.get("/series/{series_id}")
+async def get_series(series_id: str) -> dict:
+    """Get a series config."""
+    from server.series_config import get_series as _get
+
+    cfg = _get(series_id)
+    if not cfg:
+        raise HTTPException(status_code=404, detail="series not found")
+    return cfg
+
+
+@app.put("/series/{series_id}")
+async def upsert_series(series_id: str, body: dict) -> dict:
+    """Create or update a series config.
+
+    Body: {source_lang?, target_lang?, llm_provider?, llm_model?, path_prefix?, auto_translate?}
+    """
+    from server.series_config import upsert_series as _upsert
+
+    _upsert(
+        series_id,
+        source_lang=body.get("source_lang"),
+        target_lang=body.get("target_lang"),
+        llm_provider=body.get("llm_provider"),
+        llm_model=body.get("llm_model"),
+        path_prefix=body.get("path_prefix"),
+        auto_translate=body.get("auto_translate", False),
+    )
+    return {"status": "ok"}
+
+
+@app.delete("/series/{series_id}")
+async def delete_series(series_id: str) -> dict:
+    """Delete a series config."""
+    from server.series_config import delete_series as _delete
+
+    deleted = _delete(series_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="series not found")
+    return {"status": "ok"}
+
+
+@app.get("/series/lookup")
+async def lookup_series(path: str = Query(..., description="Media path to look up")) -> dict:
+    """Find the series config matching a media path (longest prefix match)."""
+    from server.series_config import lookup_by_path
+
+    cfg = lookup_by_path(path)
+    if not cfg:
+        return {"match": None}
+    return {"match": cfg}
 
 
 # --- Static UI mount (v0.6.5) ---------------------------------------------

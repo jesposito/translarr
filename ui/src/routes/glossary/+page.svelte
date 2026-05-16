@@ -186,7 +186,16 @@
     }
   }
 
-  onMount(loadGlossaries);
+  onMount(async () => {
+    await loadGlossaries();
+    // If URL has ?series=<id>, auto-select that glossary.
+    const params = new URLSearchParams(window.location.search);
+    const seriesParam = params.get('series');
+    if (seriesParam) {
+      selectedId = seriesParam;
+      await selectGlossary(seriesParam);
+    }
+  });
 </script>
 
 <svelte:head>

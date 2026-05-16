@@ -171,8 +171,9 @@ Translarr is a free, self-hosted tool. The full vision ships before any "launch"
 | v0.1.6 | Source-lang auto-detect, preflight estimates, presets, error cleanup, Unraid template | ✅ Shipped |
 | v0.2 | Emby plugin (ISubtitleProvider + scheduled task + settings page) | ✅ Shipped |
 | **v0.3** | **DeepSeek/Gemini providers, Plex webhook, item-specific library refresh, GHCR CI, file browser, glossary** | ✅ Shipped |
+| **v0.3.1** | **UI pages for Library browser + Glossary editor, clean SPA URLs** | ✅ Shipped |
 | v0.4 | Jellyfin plugin (port of v0.2, public repo) | Next |
-| v0.5 | Per-series language overrides, UI pages for browse/glossary | Planned |
+| v0.5 | Per-series language overrides | Planned |
 | v0.7 | Audio-grounded correction (contingent on critic telemetry) | Conditional |
 | v0.8a | Direct subtitle provider integrations (OpenSubtitles, Jimaku, Animetosho) | Planned |
 | v0.8b | Optional Bazarr-as-fetch-proxy adapter | Planned |
