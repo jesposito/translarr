@@ -63,7 +63,7 @@ same reason. The Jellyfin plugin in `../jellyfin/` will likely target
 
 1. Stop Emby:
    ```bash
-   # On Unraid (TheAnsible)
+   # On Unraid
    docker stop emby
    # Or on a local Emby Server install
    sudo systemctl stop emby-server

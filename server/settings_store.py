@@ -240,7 +240,7 @@ REGISTRY: dict[str, SettingMeta] = {
         section="arr",
         description="Emby server URL for library refresh hooks after a translation completes.",
         validate=_validate_http_url,
-        hint="e.g. http://AnsibleMedia:8096",
+        hint="e.g. http://emby:8096",
     ),
     "emby_api_key": SettingMeta(
         key="emby_api_key",
