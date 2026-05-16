@@ -689,6 +689,17 @@ async def list_series() -> dict:
     return {"series": _list()}
 
 
+@app.get("/series/lookup")
+async def lookup_series(path: str = Query(..., description="Media path to look up")) -> dict:
+    """Find the series config matching a media path (longest prefix match)."""
+    from server.series_config import lookup_by_path
+
+    cfg = lookup_by_path(path)
+    if not cfg:
+        return {"match": None}
+    return {"match": cfg}
+
+
 @app.get("/series/{series_id}")
 async def get_series(series_id: str) -> dict:
     """Get a series config."""
@@ -729,17 +740,6 @@ async def delete_series(series_id: str) -> dict:
     if not deleted:
         raise HTTPException(status_code=404, detail="series not found")
     return {"status": "ok"}
-
-
-@app.get("/series/lookup")
-async def lookup_series(path: str = Query(..., description="Media path to look up")) -> dict:
-    """Find the series config matching a media path (longest prefix match)."""
-    from server.series_config import lookup_by_path
-
-    cfg = lookup_by_path(path)
-    if not cfg:
-        return {"match": None}
-    return {"match": cfg}
 
 
 # --- Static UI mount (v0.6.5) ---------------------------------------------
