@@ -5,7 +5,7 @@
 [![CI](https://github.com/jesposito/translarr/actions/workflows/ci.yml/badge.svg)](https://github.com/jesposito/translarr/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 ![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)
-![Tests](https://img.shields.io/badge/tests-178-green.svg)
+![Tests](https://img.shields.io/badge/tests-200-green.svg)
 ![Status](https://img.shields.io/badge/status-alpha-yellow.svg)
 
 Translarr is a self-hosted sidecar that plugs into Sonarr, Radarr, Emby, and Jellyfin. When an import lands with an embedded subtitle track in the wrong language — Russian fansubs on a Japanese anime, hardcoded Spanish on a Korean drama, Polish on an action film — Translarr extracts the track, translates it with a context-aware LLM, redistributes the timing for the target language's reading rate, and drops a clean `.srt` next to the video.
@@ -47,23 +47,26 @@ Translarr does NOT compete with Bazarr (which fetches existing subs) or subgen (
 ## What v0.1 ships today
 
 - **FastAPI server** with async job queue + worker pool (SQLite-backed, survives restart)
-- **LLM router** — Anthropic Claude (default), OpenAI, Ollama (local, free, lower quality)
+- **LLM router** — Anthropic Claude (default), OpenAI, DeepSeek, Google Gemini, Ollama (local, free)
 - **Subtitle pipeline** — ffmpeg-extracted track from any container format, parsed by pysubs2
 - **Sliding-context translation** — 30-line batches with 10-line prior context, names + pronouns stay consistent
 - **Reading-rate adapter** — splits target-language lines that would be unreadable at the original duration; redistributes timing proportionally; preserves the original span
 - **Style-tag preservation** — ASS/SSA `{\i1}`, `{\an8}`, `{\fad(...)}`, colors all pass through translation and split
 - **Source language auto-detection** — ffprobe reads the track's language tag; no manual `source_lang` needed
 - **Preflight cost estimates** — `POST /preflight` shows per-model cost before committing any API spend
-- **Translation presets** — Quick & Cheap / Balanced / Best Quality / Local & Free — one click sets all tunables
+- **Translation presets** — Quick & Cheap / Balanced / Best Quality / Local & Free / DeepSeek Budget / Gemini Flash
 - **Live-mutable settings** — change model, provider, concurrency, cost caps via the Settings page with zero restarts
-- **Sonarr/Radarr Connect webhooks** — opt-in per movie/series via a `radarr_translate` / `sonarr_translate` tag
-- **Emby/Jellyfin webhooks** — for retroactive translation on library scan or on-demand via playback.start
-- **Emby subtitle picker** — ISubtitleProvider integration; "★ Translarr — translate to EN" appears in the player's subtitle search modal
+- **Sonarr/Radarr/Plex webhooks** — opt-in per movie/series via tags; Plex handles library.new and media.play
+- **Emby/Jellyfin webhooks** — retroactive translation on library scan or on-demand via playback.start
+- **Emby subtitle picker** — ISubtitleProvider integration; "★ Translarr — translate to EN" in the subtitle modal
+- **Item-specific library refresh** — Emby/Jellyfin refresh just the translated item (~2s) instead of full scan
 - **Cost guards** — `MAX_COST_CENTS_PER_DAY`, `MAX_COST_CENTS_PER_JOB`, `JOB_TIMEOUT_SECONDS` kill-switches
 - **Push notifications** — ntfy.sh integration; know when translations finish without checking the dashboard
+- **File browser** — explore your media library from the UI, see which files have translations, coverage stats
+- **Glossary persistence** — per-series term dictionaries keep character names consistent across episodes
 - **Output-collision policy** — `.translarr.srt` infix never overwrites human/Bazarr/embedded subs
 - **Web UI** — dashboard with job history, real-time stats, budget tracking, editable settings page
-- **178 tests, all green**
+- **200 tests, all green**
 
 ## Quickstart
 
@@ -165,14 +168,12 @@ Translarr is a free, self-hosted tool. The full vision ships before any "launch"
 |---------|-------|--------|
 | v0.1 | Server brain: webhooks, LLM router, sub pipeline, reading-rate, tag-parsing, cost guards | ✅ Shipped |
 | v0.1.5 | Persistent queue, async `/translate`, worker pool, cost-tracker | ✅ Shipped |
-| v0.1.6 | Source-lang auto-detect, preflight estimates, presets, error cleanup, Unraid CA template | ✅ Shipped |
-| v0.2 | Emby plugin (ISubtitleProvider + scheduled task + settings page) | ✅ Shipped (DLL available, needs .NET rebuild for async polling) |
-| v0.3 | Jellyfin plugin (port of v0.2) | Next |
-| **v0.4** | **Docker Hub + GHCR multi-arch image, CI pipeline, arr-style icon** | **In progress — adoption blocker** |
-| **v0.5** | **DeepSeek/Gemini providers, item-specific library refresh, Plex webhook** | **Planned** |
-| v0.6 | File browser + library coverage view (which files have translations, which don't) | Planned |
-| v0.6.5 | Per-series language overrides, glossary persistence | Planned |
-| v0.7 | Audio-grounded correction (contingent on v0.4 critic telemetry) | Conditional |
+| v0.1.6 | Source-lang auto-detect, preflight estimates, presets, error cleanup, Unraid template | ✅ Shipped |
+| v0.2 | Emby plugin (ISubtitleProvider + scheduled task + settings page) | ✅ Shipped |
+| **v0.3** | **DeepSeek/Gemini providers, Plex webhook, item-specific library refresh, GHCR CI, file browser, glossary** | ✅ Shipped |
+| v0.4 | Jellyfin plugin (port of v0.2, public repo) | Next |
+| v0.5 | Per-series language overrides, UI pages for browse/glossary | Planned |
+| v0.7 | Audio-grounded correction (contingent on critic telemetry) | Conditional |
 | v0.8a | Direct subtitle provider integrations (OpenSubtitles, Jimaku, Animetosho) | Planned |
 | v0.8b | Optional Bazarr-as-fetch-proxy adapter | Planned |
 | v0.9 | Whisper-from-audio fallback for no-subs case | Planned |
