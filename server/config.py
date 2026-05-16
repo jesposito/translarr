@@ -43,6 +43,18 @@ class Settings(BaseSettings):
     # could chew API budget. See TR-2yt.
     auto_translate_on_playback: bool = False
 
+    # Global kill-switch. When TRUE, worker threads stop claiming new
+    # jobs from the queue — anything queued (via webhook, /translate,
+    # /translate/sync, etc.) just sits in QUEUED state until this flips
+    # back to FALSE. Running jobs are NOT cancelled; they finish
+    # naturally. Use this when:
+    #   - you suspect a runaway loop and want to see what's in flight
+    #     before letting more work start,
+    #   - you're about to do maintenance on the upstream LLM provider,
+    #   - you want a "pause for the night" without restarting the container.
+    # Live-mutable via the Settings page. Default OFF.
+    translations_paused: bool = False
+
     # How /translate/sync (the endpoint Emby's ISubtitleProvider plugin hits)
     # responds to bulk requests:
     #   "off"    — return 404 immediately. The Emby plugin still appears in the

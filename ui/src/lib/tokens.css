@@ -161,22 +161,47 @@ button {
   cursor: pointer;
 }
 
+/* M2 (a11y audit): use the modern clip-path "visually hidden" recipe so
+   the skip-link stays in normal flow until focused. The old left:-9999px
+   trick is fragile under browsers that scroll the focused element into
+   view (and clashes with our scroll-padding-top). */
 .skip-link {
   position: absolute;
-  left: -9999px;
-  top: 0;
+  width: 1px;
+  height: 1px;
+  padding: var(--space-2) var(--space-4);
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
   background: var(--accent);
   color: var(--accent-fg);
-  padding: var(--space-2) var(--space-4);
   border-radius: var(--radius-sm);
   font-weight: 500;
   z-index: 100;
 }
 .skip-link:focus {
+  position: absolute;
   left: var(--space-4);
   top: var(--space-4);
+  width: auto;
+  height: auto;
+  margin: 0;
+  overflow: visible;
+  clip: auto;
+  clip-path: none;
+  white-space: normal;
   text-decoration: none;
 }
+
+/* M4 (a11y audit): non-color severity indicators for budget caps,
+   capacity bars, etc. WCAG 1.4.1 forbids color-only signalling. */
+.warn-tag {
+  font-weight: 500;
+}
+.warn-tag[data-level="warn"] { color: var(--warn); }
+.warn-tag[data-level="hot"]  { color: var(--error); font-weight: 600; }
 
 .card {
   background: var(--bg-elevated);

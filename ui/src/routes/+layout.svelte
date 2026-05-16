@@ -33,6 +33,14 @@
     return () => mq.removeEventListener('change', handler);
   });
 
+  // M1 (a11y audit): if the viewport flips from mobile to desktop while
+  // the mobile nav is open, the open state becomes stale (sidenav is now
+  // always visible, but `navOpen` still says "open"). Close it so the
+  // next mobile resize starts from a known state.
+  $effect(() => {
+    if (!isMobile && navOpen) navOpen = false;
+  });
+
   // M4: Escape closes the mobile nav and returns focus to the toggle.
   function onKeydown(e: KeyboardEvent) {
     if (e.key === 'Escape' && navOpen) {

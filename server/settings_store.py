@@ -187,6 +187,14 @@ REGISTRY: dict[str, SettingMeta] = {
         mutable=True,
         hint="If Emby's 'Download missing subtitles' scheduled task is flooding the dashboard with $0 jobs, leave on 'smart' (default).",
     ),
+    "translations_paused": SettingMeta(
+        key="translations_paused",
+        type="bool",
+        section="playback",
+        description="Global pause. When ON, worker threads stop claiming jobs from the queue. New requests still queue up but don't start running until you turn this OFF again. Running jobs are not interrupted — they finish naturally.",
+        default_label="off",
+        hint="Useful as a 'pause for the night' or while debugging a runaway. Flips live with no restart.",
+    ),
     # === Push notifications ===
     "ntfy_url": SettingMeta(
         key="ntfy_url",

@@ -200,6 +200,14 @@ async def worker_loop(stop_event: asyncio.Event, worker_id: int) -> None:
             log.info("worker_self_terminating", worker_id=worker_id,
                      max_concurrent=settings.max_concurrent)
             break
+        # Global pause: when settings.translations_paused is ON, sit idle
+        # and re-check on the next poll. Jobs continue to queue, they
+        # just don't get claimed. Setting is live-mutable from the UI so
+        # flipping it back to OFF resumes processing without restart.
+        if settings.translations_paused:
+            with contextlib.suppress(asyncio.TimeoutError):
+                await asyncio.wait_for(stop_event.wait(), timeout=_POLL_INTERVAL_SECONDS)
+            continue
         try:
             job = q.claim_next()
         except Exception:

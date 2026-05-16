@@ -443,6 +443,8 @@
               </span>
             </label>
           {:else if field.choices}
+            <!-- M13 (a11y audit): onchange fires on commit; onblur as
+                 well is redundant and double-toggles the live region. -->
             <select
               id={inputId}
               bind:value={local[field.key] as string}
@@ -450,7 +452,6 @@
               aria-describedby="{errId} {helpId} {statusId}"
               aria-invalid={hasError ? 'true' : 'false'}
               onchange={() => saveField(field.key)}
-              onblur={() => saveField(field.key)}
               oninput={() => clearFieldError(field.key)}
             >
               {#each field.choices as opt}
@@ -491,10 +492,14 @@
               onkeydown={onEnterToBlur}
             />
           {:else if field.type === 'secret'}
+            <!-- M12 (a11y audit): autocomplete="new-password" tells
+                 password managers NOT to autofill saved credentials
+                 into LLM-API-key fields. autocomplete="off" alone is
+                 ignored by Chrome and Firefox for password inputs. -->
             <input
               id={inputId}
               type="password"
-              autocomplete="off"
+              autocomplete="new-password"
               placeholder={field.set ? '(set — type to replace)' : '(not set)'}
               bind:value={local[field.key] as string}
               readonly={!field.mutable}

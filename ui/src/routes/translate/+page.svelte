@@ -205,6 +205,14 @@
       };
     } finally {
       submitting = false;
+      // M7 (a11y audit): on a server error the submit button is now
+      // disabled — focus the result heading so screen-reader and
+      // keyboard users land on the error message instead of getting
+      // stuck on a dead button.
+      if (result?.kind === 'error') {
+        await tick();
+        document.getElementById('result-heading')?.focus();
+      }
     }
   }
 
@@ -269,6 +277,13 @@
   <form onsubmit={submit} novalidate>
     <fieldset>
       <legend class="sr-only">Translation request</legend>
+      <!-- Mo9 (a11y audit): a key explaining what * means, for cognitive
+           accessibility. The aria-hidden span on each * still hides the
+           character from SR (which already gets "required" from
+           aria-required), but sighted readers now have a key. -->
+      <p class="form-legend muted small">
+        Fields marked <span class="req" aria-hidden="true">*</span> are required.
+      </p>
 
       <div class="field">
         <label for="media-path">
@@ -395,16 +410,22 @@
 </section>
 
 {#if result}
+  <!-- M6 (a11y audit): role=alert / role=status already imply assertive
+       / polite live politeness. Setting aria-live on top caused some
+       screen readers (NVDA in certain configs) to announce twice. -->
   <section
     class="card result-card"
     class:result-error={result.kind === 'error'}
     class:result-success={result.kind === 'success'}
     aria-labelledby="result-heading"
     role={result.kind === 'error' ? 'alert' : 'status'}
-    aria-live={result.kind === 'error' ? 'assertive' : 'polite'}
     aria-atomic="true"
   >
-    <h2 id="result-heading">
+    <!-- M7 (a11y audit): tabindex makes the heading programmatically
+         focusable so we can move focus here on a server error (the
+         submit button has gone disabled and there's nowhere to read
+         the error message otherwise). -->
+    <h2 id="result-heading" tabindex="-1">
       {result.kind === 'success' ? 'Submitted' : 'Submission failed'}
     </h2>
     {#if result.kind === 'success'}

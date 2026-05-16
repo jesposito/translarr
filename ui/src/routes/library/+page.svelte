@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, tick } from 'svelte';
+  import { page } from '$app/stores';
 
   interface DirEntry {
     name: string;
@@ -52,6 +53,20 @@
   let seriesFormTarget = $state('');
   let seriesFormId = $state('');
   let seriesFormSaving = $state(false);
+  // C2 (a11y audit): remember which button opened the series form so we
+  // can return focus to it on close. Keyboard users otherwise lose tab
+  // position after Cancel / Save.
+  let seriesFormTrigger: HTMLElement | null = null;
+  // C3 (a11y audit): inline toast — replaces alert() so non-modal
+  // notifications don't yank focus and screen-reader users hear them
+  // via a live region instead of an OS dialog.
+  let toast = $state<{ kind: 'success' | 'error'; msg: string } | null>(null);
+  function showToast(kind: 'success' | 'error', msg: string) {
+    toast = { kind, msg };
+    if (kind === 'success') {
+      setTimeout(() => { if (toast?.msg === msg) toast = null; }, 5000);
+    }
+  }
 
   function formatSize(bytes: number): string {
     if (bytes < 1024) return `${bytes} B`;
@@ -97,8 +112,9 @@
       data = result;
       currentPath = result.path === '/' ? '' : result.path;
       crumbs = buildCrumbs(result.path);
-      const params = path ? `?path=${encodeURIComponent(path)}` : '';
-      window.history.replaceState({}, '', `/library${params}`);
+      // C1 (a11y audit): the URL is now driven by SvelteKit's router
+      // (real <a> navigation + $effect below). No history manipulation
+      // here — that broke middle-click / cmd-click "open in new tab".
       // Look up series config for this path.
       await lookupSeries(path);
     } catch (e) {
@@ -123,11 +139,29 @@
     }
   }
 
-  function openSeriesForm() {
+  async function openSeriesForm(e: MouseEvent | KeyboardEvent) {
+    // C2 (a11y audit): capture the trigger so we can return focus on close.
+    seriesFormTrigger = e.currentTarget as HTMLElement;
     seriesFormId = seriesMatch?.id || slugify(dirName(currentPath));
     seriesFormLang = seriesMatch?.source_lang || '';
     seriesFormTarget = seriesMatch?.target_lang || '';
     showSeriesForm = true;
+    await tick();
+    document.getElementById('series-id')?.focus();
+  }
+
+  function closeSeriesForm() {
+    showSeriesForm = false;
+    // Restore focus to whichever button opened the form.
+    setTimeout(() => seriesFormTrigger?.focus(), 0);
+  }
+
+  function onSeriesFormKey(e: KeyboardEvent) {
+    // C2: Escape closes the form, matching dialog conventions.
+    if (e.key === 'Escape' && showSeriesForm) {
+      e.preventDefault();
+      closeSeriesForm();
+    }
   }
 
   async function saveSeriesConfig() {
@@ -144,10 +178,12 @@
         }),
       });
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      showSeriesForm = false;
       await lookupSeries(currentPath);
+      showToast('success', `Series "${seriesFormId.trim()}" saved`);
+      closeSeriesForm();
     } catch (e) {
-      alert(e instanceof Error ? e.message : String(e));
+      // C3 (a11y audit): toast instead of alert().
+      showToast('error', e instanceof Error ? e.message : String(e));
     } finally {
       seriesFormSaving = false;
     }
@@ -166,17 +202,31 @@
       }
       const result = await r.json();
       await browse(currentPath);
-      alert(`Job queued: ${result.job_id || result.id || 'see Dashboard'}`);
+      showToast('success', `Job queued: ${result.job_id || result.id || 'see Dashboard'}`);
     } catch (e) {
-      alert(e instanceof Error ? e.message : String(e));
+      showToast('error', e instanceof Error ? e.message : String(e));
     }
   }
 
+  // C1 (a11y audit): drive the displayed directory from the URL. Real
+  // <a href> navigation updates $page.url; we re-fetch when ?path changes.
+  // Side effect: middle-click / cmd-click "open in new tab" now works
+  // because we no longer preventDefault on the row anchors.
+  $effect(() => {
+    const path = $page.url.searchParams.get('path') || '';
+    if (path !== currentPath) {
+      browse(path);
+    }
+  });
+
   onMount(() => {
+    // First load: read the path query before $effect tracks it.
     const params = new URLSearchParams(window.location.search);
     browse(params.get('path') || '');
   });
 </script>
+
+<svelte:window onkeydown={onSeriesFormKey} />
 
 <svelte:head>
   <title>Library — Translarr</title>
@@ -191,6 +241,23 @@
   <div class="error-banner" role="alert">{error}</div>
 {/if}
 
+{#if toast}
+  <div
+    class="error-banner"
+    class:toast-success={toast.kind === 'success'}
+    role={toast.kind === 'error' ? 'alert' : 'status'}
+    aria-atomic="true"
+  >
+    <span>{toast.msg}</span>
+    <button
+      type="button"
+      class="toast-dismiss"
+      aria-label="Dismiss notification"
+      onclick={() => (toast = null)}
+    >✕</button>
+  </div>
+{/if}
+
 <nav class="breadcrumbs" aria-label="Breadcrumb">
   <ol>
     {#each crumbs as crumb (crumb.path)}
@@ -198,9 +265,10 @@
         {#if crumb.path === currentPath}
           <span aria-current="page">{crumb.label}</span>
         {:else}
-          <a href="/library{crumb.path ? `?path=${encodeURIComponent(crumb.path)}` : ''}"
-            onclick={(e) => { e.preventDefault(); browse(crumb.path); }}
-          >{crumb.label}</a>
+          <!-- C1 (a11y audit): real <a> navigation. Browser handles
+               middle-click / cmd-click correctly; SvelteKit handles
+               regular clicks; $effect re-fetches on URL change. -->
+          <a href="/library{crumb.path ? `?path=${encodeURIComponent(crumb.path)}` : ''}">{crumb.label}</a>
         {/if}
       </li>
     {/each}
@@ -245,8 +313,12 @@
   </div>
 
   {#if showSeriesForm}
-    <div class="card series-form">
-      <h3>Configure series</h3>
+    <!-- C2 (a11y audit): role=region + labelledby gives SR users a way
+         to find the form via landmark navigation. The form is NOT a
+         modal (no overlay, no focus trap) but it does push focus to
+         the first field on open and restore it on close. -->
+    <section class="card series-form" role="region" aria-labelledby="series-form-heading">
+      <h3 id="series-form-heading">Configure series</h3>
       <p class="hint">
         Set source/target language defaults for all files under this directory.
         Also creates a glossary scoped to this series.
@@ -267,9 +339,9 @@
         <button type="button" class="btn btn-primary" onclick={saveSeriesConfig} disabled={seriesFormSaving}>
           {seriesFormSaving ? 'Saving…' : 'Save'}
         </button>
-        <button type="button" class="btn btn-ghost" onclick={() => (showSeriesForm = false)}>Cancel</button>
+        <button type="button" class="btn btn-ghost" onclick={closeSeriesForm}>Cancel</button>
       </div>
-    </div>
+    </section>
   {/if}
 {/if}
 
@@ -281,13 +353,15 @@
     </div>
   {:else if data}
     {#if data.parent !== null}
+      <!-- M10 (a11y audit): real anchor (no preventDefault) + descriptive
+           aria-label. ".." alone is meaningless to screen readers. -->
       <a
         href="/library{data.parent ? `?path=${encodeURIComponent(data.parent)}` : ''}"
         class="row dir-row"
-        onclick={(e) => { e.preventDefault(); browse(data.parent || ''); }}
+        aria-label="Go up to parent directory"
       >
         <span class="row-icon" aria-hidden="true">📁</span>
-        <span class="row-name">..</span>
+        <span class="row-name" aria-hidden="true">..</span>
       </a>
     {/if}
 
@@ -295,12 +369,12 @@
       <a
         href="/library?path={encodeURIComponent(dir.path)}"
         class="row dir-row"
-        onclick={(e) => { e.preventDefault(); browse(dir.path); }}
+        aria-label="{dir.name}{dir.has_media ? ', has media' : ', no media'}"
       >
         <span class="row-icon" aria-hidden="true">{dir.has_media ? '📁' : '📂'}</span>
         <span class="row-name">{dir.name}</span>
         {#if !dir.has_media}
-          <span class="muted small">no media</span>
+          <span class="muted small" aria-hidden="true">no media</span>
         {/if}
       </a>
     {/each}
@@ -312,15 +386,18 @@
         <span class="row-size muted">{formatSize(file.size)}</span>
         {#if file.translated}
           <span class="pill" data-state="done">translated</span>
-          <div class="translations">
+          <ul class="translations" aria-label="Available translations">
             {#each file.translations as t (t.lang)}
-              <span class="lang-badge">{t.lang}</span>
+              <li class="lang-badge">{t.lang}</li>
             {/each}
-          </div>
+          </ul>
         {:else}
+          <!-- M10: aria-label includes the file name so SR users hear
+               which file the button translates. -->
           <button
             type="button"
             class="btn btn-ghost btn-sm"
+            aria-label="Translate {file.name}"
             onclick={() => translateFile(file.path)}
           >Translate</button>
         {/if}
@@ -350,6 +427,9 @@
     padding: var(--space-3) var(--space-4);
     border-radius: var(--radius-sm);
     margin-bottom: var(--space-4);
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
   }
 
   /* Breadcrumbs */
@@ -524,7 +604,12 @@
   }
   .dir-row .row-name { font-weight: 400; }
 
+  /* ul -> li semantics (M10 a11y) but visually identical to the old
+     div+span layout. */
   .translations {
+    list-style: none;
+    margin: 0;
+    padding: 0;
     display: flex;
     gap: var(--space-1);
   }
@@ -536,6 +621,25 @@
     color: var(--success);
     border-radius: var(--radius-sm);
     text-transform: uppercase;
+  }
+
+  /* C3 (a11y audit): toast styles match error-banner shape. */
+  .error-banner.toast-success {
+    background: color-mix(in srgb, var(--success) 12%, transparent);
+    border-color: var(--success);
+    color: var(--success);
+  }
+  .toast-dismiss {
+    background: transparent;
+    border: 0;
+    color: inherit;
+    cursor: pointer;
+    font-size: var(--text-md);
+    line-height: 1;
+    padding: 0 var(--space-2);
+    margin-left: auto;
+    min-width: 32px;
+    min-height: 32px;
   }
 
   .btn-sm {

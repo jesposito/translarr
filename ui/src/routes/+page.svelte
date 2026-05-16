@@ -71,7 +71,9 @@
   }
 
   function relTime(epoch: number | null): string {
-    if (!epoch) return '—';
+    // Mo4 (a11y audit): "Not finished" reads better than an em-dash for
+    // screen readers that pronounce dash characters literally.
+    if (!epoch) return 'Not finished';
     const now = Date.now() / 1000;
     const diff = Math.max(0, now - epoch);
     if (diff < 60) return `${Math.floor(diff)}s ago`;
@@ -214,6 +216,13 @@
         </span>
         <span class="cap-label">
           {stats.budget.pct_used.toFixed(0)}% of {dollars(stats.budget.daily_cap_cents)} cap
+          <!-- M4 (a11y audit): non-color severity indicator. WCAG 1.4.1
+               forbids relying on the cap-bar color alone. -->
+          {#if stats.budget.pct_used >= 90}
+            <span class="warn-tag" data-level="hot"> — near limit</span>
+          {:else if stats.budget.pct_used >= 70}
+            <span class="warn-tag" data-level="warn"> — over 70%</span>
+          {/if}
         </span>
       </div>
       <div class="stat">
@@ -245,7 +254,10 @@
   <h2 id="live-heading">Live jobs</h2>
   <!-- Transition-only SR announcement (M1 from a11y audit). -->
   <span class="sr-only" aria-live="polite" aria-atomic="true">{liveAnnouncement}</span>
-  <div class="live-region" aria-busy={liveJobs === null}>
+  <!-- M3 (a11y audit): aria-live="off" is explicit — the visible list
+       is NOT the announcement target, the sr-only span above is. Some
+       screen readers otherwise crawl the live list mid-poll. -->
+  <div class="live-region" aria-busy={liveJobs === null} aria-live="off">
     {#if liveJobs === null}
       <div class="card" aria-hidden="true">
         <div class="skeleton" style="width: 60%; height: 16px; margin-bottom: 12px;"></div>
