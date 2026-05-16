@@ -348,6 +348,37 @@ class SQLiteQueue:
             log.info("reset_orphaned_running", count=cur.rowcount)
         return cur.rowcount
 
+    def reclassify_legacy_bitmap_failures(self) -> int:
+        """One-time cleanup for failures the new pipeline now treats as skips.
+
+        Pre-fix, files with only PGS/VOBSUB bitmap subtitle tracks raised
+        ValueError in pick_source_track and ended up in the FAILED bucket
+        after burning three retry attempts. The current pipeline raises
+        NoSourceSubtitles instead, which the worker treats as a $0
+        terminal skip (state=done, output_path=null, no error in the UI).
+
+        On first start of the upgraded image we sweep the existing rows
+        forward so the dashboard's "Failed" bucket matches the new
+        contract. Idempotent — only matches the exact legacy error string.
+        """
+        conn = get_conn()
+        cur = conn.execute(
+            """
+            UPDATE jobs
+               SET state = 'done',
+                   error = NULL,
+                   cost_cents = 0,
+                   finished_at = COALESCE(finished_at, ?),
+                   updated_at = ?
+             WHERE state = 'failed'
+               AND error LIKE 'ValueError: no text-based subtitle tracks%'
+            """,
+            (_now(), _now()),
+        )
+        if cur.rowcount > 0:
+            log.info("reclassified_legacy_bitmap_failures", count=cur.rowcount)
+        return cur.rowcount
+
 
 _singleton: SQLiteQueue | None = None
 
@@ -356,8 +387,9 @@ def get_queue() -> SQLiteQueue:
     global _singleton
     if _singleton is None:
         _singleton = SQLiteQueue()
-        # Recovery sweep on first access.
+        # Recovery sweeps on first access.
         _singleton.reset_orphaned_running_jobs()
+        _singleton.reclassify_legacy_bitmap_failures()
     return _singleton
 
 

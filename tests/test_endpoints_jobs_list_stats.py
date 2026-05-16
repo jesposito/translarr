@@ -190,6 +190,7 @@ def test_config_returns_expected_keys(client):
         "max_cost_cents_per_job", "job_timeout_seconds",
         "radarr_translate_tag", "sonarr_translate_tag", "webhook_secret",
         "auto_translate_on_playback", "emby_provider_mode",
+        "translations_paused",
         "ntfy_url", "ntfy_on_success", "ntfy_on_failure", "ntfy_on_skip",
         "emby_url", "emby_api_key", "jellyfin_url", "jellyfin_api_key",
     }

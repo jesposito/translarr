@@ -89,7 +89,14 @@
           failed: 'failed',
           cancelled: 'cancelled',
         }[next.state];
-        stateAnnouncement = `Job ${shortId} is ${verb}.`;
+        // Mo1 (a11y audit): fold the error message into the state
+        // transition announcement so SR users hear both the verdict AND
+        // the diagnostic without extra navigation.
+        let msg = `Job ${shortId} is ${verb}.`;
+        if (next.state === 'failed' && next.error) {
+          msg += ` Error: ${next.error.slice(0, 160)}`;
+        }
+        stateAnnouncement = msg;
       }
       prevState = next.state;
       job = next;
@@ -215,7 +222,9 @@
 </svelte:head>
 
 <p class="backlink">
-  <a href="/">← Back to dashboard</a>
+  <!-- Mo2 (a11y audit): hide the arrow from SR so the link reads as
+       "Back to dashboard" instead of "left arrow Back to dashboard". -->
+  <a href="/"><span aria-hidden="true">←</span> Back to dashboard</a>
 </p>
 
 <header class="page-head">
@@ -247,6 +256,8 @@
     <dl class="kv">
       <dt>Media path</dt>
       <dd>
+        <!-- Mo3 (a11y audit): visible "copy" hint so sighted users
+             know clicking the path copies rather than opens. -->
         <button
           type="button"
           class="btn btn-ghost path-btn"
@@ -254,6 +265,7 @@
           aria-label="Copy media path to clipboard"
         >
           <span class="mono path-text">{job.media_path}</span>
+          <span aria-hidden="true" class="copy-hint">copy</span>
         </button>
       </dd>
 
@@ -449,6 +461,12 @@
     text-overflow: ellipsis;
     white-space: nowrap;
     max-width: 100%;
+  }
+  /* Mo3 (a11y audit): visible "copy" affordance on the path button. */
+  .copy-hint {
+    color: var(--text-muted);
+    font-size: var(--text-xs);
+    margin-left: var(--space-2);
   }
 
   .output-card { border-color: var(--success); }

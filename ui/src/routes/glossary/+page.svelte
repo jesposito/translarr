@@ -118,8 +118,16 @@
     }
   }
 
-  async function deleteGlossary(id: string) {
-    if (!confirm(`Delete entire glossary "${id}"? This cannot be undone.`)) return;
+  // C3 (a11y audit): inline accessible confirm row replaces window.confirm()
+  // which is unannounced by some screen readers and never returns focus.
+  let pendingDeleteId = $state<string | null>(null);
+  function requestDeleteGlossary(id: string) {
+    pendingDeleteId = id;
+  }
+  async function confirmDeleteGlossary() {
+    if (!pendingDeleteId) return;
+    const id = pendingDeleteId;
+    pendingDeleteId = null;
     try {
       const r = await fetch(`/glossaries/${encodeURIComponent(id)}`, { method: 'DELETE' });
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
@@ -219,7 +227,10 @@
     <div class="panel-head">
       <h2 id="list-heading">Glossaries</h2>
       <div class="create-row">
+        <!-- M8 (a11y audit): explicit label paired with the input; placeholders disappear on focus and aren't reliable labels. -->
+        <label for="new-glossary-id" class="sr-only">New glossary ID</label>
         <input
+          id="new-glossary-id"
           type="text"
           placeholder="New glossary ID…"
           bind:value={newGlossaryId}
@@ -245,12 +256,15 @@
       <ul class="glossary-list">
         {#each glossaries as g (g.id)}
           <li>
+            <!-- M9 (a11y audit): aria-current="true" is the right semantic
+                 for "this is the active list item". aria-pressed implies
+                 a toggle button which this is not. -->
             <button
               type="button"
               class="glossary-item"
               class:selected={selectedId === g.id}
               onclick={() => selectGlossary(g.id)}
-              aria-pressed={selectedId === g.id}
+              aria-current={selectedId === g.id ? 'true' : undefined}
             >
               <span class="g-name">{g.id}</span>
               <span class="g-meta">{g.entry_count} entries · {relTime(g.last_updated)}</span>
@@ -258,10 +272,19 @@
             <button
               type="button"
               class="btn-icon"
-              title="Delete {g.id}"
               aria-label="Delete glossary {g.id}"
-              onclick={() => deleteGlossary(g.id)}
+              onclick={() => requestDeleteGlossary(g.id)}
             >✕</button>
+            {#if pendingDeleteId === g.id}
+              <!-- C3 (a11y audit): inline accessible confirm. role=alertdialog so SR announces. -->
+              <div class="confirm-row" role="alertdialog" aria-labelledby="confirm-label-{g.id}">
+                <span id="confirm-label-{g.id}">
+                  Delete "{g.id}"? Cannot be undone.
+                </span>
+                <button type="button" class="btn btn-danger btn-sm" onclick={confirmDeleteGlossary}>Delete</button>
+                <button type="button" class="btn btn-ghost btn-sm" onclick={() => (pendingDeleteId = null)}>Cancel</button>
+              </div>
+            {/if}
           </li>
         {/each}
       </ul>
@@ -290,26 +313,31 @@
         <div class="error-inline" role="alert">{entryError}</div>
       {/if}
 
-      <!-- Add entry form -->
+      <!-- Add entry form (M8 a11y: visible-only-on-focus labels) -->
       <form class="add-form" onsubmit={(e) => { e.preventDefault(); addEntry(); }}>
+        <label for="entry-source" class="sr-only">Source term</label>
         <input
+          id="entry-source"
           type="text"
           placeholder="Source term"
           bind:value={newSource}
           required
         />
+        <label for="entry-translation" class="sr-only">Translation</label>
         <input
+          id="entry-translation"
           type="text"
           placeholder="Translation"
           bind:value={newTranslation}
           required
         />
+        <label for="entry-lang" class="sr-only">Target language</label>
         <input
+          id="entry-lang"
           type="text"
           placeholder="en"
           bind:value={newTargetLang}
           class="lang-input"
-          aria-label="Target language"
         />
         <button type="submit" class="btn btn-primary btn-sm" disabled={!newSource.trim() || !newTranslation.trim()}>
           Add
@@ -320,12 +348,19 @@
       {#if importOpen}
         <div class="import-box">
           <label for="import-area">
-            Paste entries — one per line: <code class="mono">source_term{'\t'}translation{'\t'}notes</code>
+            Paste entries, one per line: <code class="mono">source_term{'\t'}translation{'\t'}notes</code>
           </label>
+          <!-- Mo8 (a11y audit): an SR-only help paragraph spells out the
+               format in words, since placeholder text uses literal tab
+               characters that read as a confusing run-on string. -->
+          <p id="import-help" class="sr-only">
+            Tab-separated fields, one entry per line. Notes column is optional.
+          </p>
           <textarea
             id="import-area"
             rows="6"
             bind:value={importText}
+            aria-describedby="import-help"
             placeholder={"tanjiro&#9;Tanjiro Kamado&#9;protagonist name&#10;nezuko&#9;Nezuko Kamado&#9;sister"}
           ></textarea>
           <button
@@ -464,6 +499,29 @@
     display: flex;
     align-items: center;
     gap: var(--space-2);
+    flex-wrap: wrap;
+  }
+  /* C3 (a11y audit): inline confirm replaces window.confirm(). */
+  .confirm-row {
+    flex-basis: 100%;
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-2) var(--space-3);
+    margin: var(--space-1) 0;
+    background: var(--error-bg);
+    border: 1px solid var(--error);
+    border-radius: var(--radius-sm);
+    color: var(--error);
+    font-size: var(--text-sm);
+  }
+  .btn-danger {
+    background: var(--error);
+    color: var(--bg);
+    border: 1px solid var(--error);
+  }
+  .btn-danger:hover {
+    background: color-mix(in srgb, var(--error) 80%, black);
   }
   .glossary-item {
     flex: 1;
