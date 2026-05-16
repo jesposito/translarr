@@ -54,3 +54,19 @@ class AsrParams(BaseModel):
     language: str | None = None
     encode: bool = True
     output: str = "srt"
+
+
+class SeriesConfigRequest(BaseModel):
+    """Body for PUT /series/{id} — create or update a series config.
+
+    All fields are optional so partial configs (e.g. just target_lang) are
+    valid. The Web UI's per-series form sends every field every time, but
+    API callers can patch individual fields by omitting the rest.
+    """
+
+    source_lang: str | None = Field(default=None, min_length=2, max_length=10)
+    target_lang: str | None = Field(default=None, min_length=2, max_length=10)
+    llm_provider: str | None = Field(default=None, min_length=1)
+    llm_model: str | None = Field(default=None, min_length=1)
+    path_prefix: str | None = Field(default=None, min_length=1)
+    auto_translate: bool = False

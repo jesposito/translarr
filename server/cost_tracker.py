@@ -23,14 +23,19 @@ def _today() -> str:
 def _try_db_conn():
     """Best-effort: return the SQLite conn if the DB module is initialized OK.
 
-    Returns None if the DB layer can't be loaded (keeps tests/dev environments
-    without TRANSLARR_DATA_DIR set from hard-failing the cost tracker).
+    Returns None and logs loudly when initialisation fails. Cost tracking
+    is a safety mechanism (kill-switches enforce daily/per-job caps), so a
+    silent failure here is a serious incident — operators need to know
+    they're running uncapped. Imports are local because cost_tracker is
+    imported by pipeline at module load and we want to avoid pulling in
+    server.db until first use.
     """
     try:
-        from server.db import get_conn  # local import to avoid circular at module load
+        from server.db import get_conn
 
         return get_conn()
     except Exception:
+        log.exception("cost_tracker_db_unavailable")
         return None
 
 
