@@ -38,6 +38,7 @@ from server.series_config import upsert_series as series_upsert
 from server.settings_store import PRESETS, REGISTRY, SettingValidationError
 from server.settings_store import apply_preset as _apply_preset
 from server.subs.extract import _normalize_lang, extract_track, list_sub_tracks, pick_source_track
+from server.subs.extract import has_translateable_track as _has_translateable_track
 from server.subs.pipeline import (
     _load_subs_with_encoding_fallback,
     _output_path,
@@ -46,6 +47,12 @@ from server.webhooks import emby, jellyfin, plex, radarr, sonarr
 
 logging.basicConfig(level=settings.log_level)
 log = structlog.get_logger()
+
+# How long /translate/sync blocks waiting for the worker before returning
+# 202 "still in progress". Defaults to 90 s — covers most TV episodes
+# without making the Emby player spin forever on a movie. Module-level
+# so tests can monkey-patch a shorter value.
+SYNC_POLL_TIMEOUT = 90
 
 
 @asynccontextmanager
@@ -476,6 +483,35 @@ async def translate_sync(req: TranslateRequest) -> dict:
             "tokens_out": 0,
         }
 
+    # --- Provider-mode gate ------------------------------------------------
+    # When Emby's "Download missing subtitles" task hits every file in a
+    # library, most calls are for items that already only have English
+    # subs/audio. The mode setting controls what we do with those:
+    #   off    — return 404 immediately, no work done
+    #   smart  — ffprobe first; 404 if there's nothing to translate from
+    #   always — original behavior: enqueue everything, let the worker skip
+    mode = settings.emby_provider_mode
+    if mode == "off":
+        log.info("translate_sync_provider_mode_off")
+        raise HTTPException(status_code=404, detail="emby_provider_mode_off")
+    if mode == "smart":
+        try:
+            tracks = await list_sub_tracks(media)
+        except Exception as e:
+            # ffprobe failure is recoverable for the queue worker (it retries
+            # later) but here in the synchronous path we'd rather not enqueue
+            # blindly. Log and 404 so the caller backs off.
+            log.warning("translate_sync_ffprobe_failed", error=str(e))
+            raise HTTPException(status_code=404, detail="ffprobe_failed") from e
+        if not _has_translateable_track(tracks, target_lang):
+            log.info(
+                "translate_sync_smart_skip",
+                media_path=media_path_str,
+                target_lang=target_lang,
+                track_count=len(tracks),
+            )
+            raise HTTPException(status_code=404, detail="no_translateable_source_track")
+
     # --- Enqueue (reuse dedup if any) --------------------------------------
     q = get_queue()
     existing = q.find_by_dedup(dedup_key)
@@ -515,8 +551,7 @@ async def translate_sync(req: TranslateRequest) -> dict:
         job_id = persisted.id
         log.info("translate_sync_enqueued", job_id=job_id)
 
-    # --- Short poll: wait up to 90 s for the worker to finish ---------------
-    SYNC_POLL_TIMEOUT = 90  # seconds — covers most TV episodes.
+    # --- Short poll: wait up to SYNC_POLL_TIMEOUT for the worker to finish --
     poll_interval = 0.5
     loop = asyncio.get_running_loop()
     deadline = loop.time() + SYNC_POLL_TIMEOUT

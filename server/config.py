@@ -43,6 +43,24 @@ class Settings(BaseSettings):
     # could chew API budget. See TR-2yt.
     auto_translate_on_playback: bool = False
 
+    # How /translate/sync (the endpoint Emby's ISubtitleProvider plugin hits)
+    # responds to bulk requests:
+    #   "off"    — return 404 immediately. The Emby plugin still appears in the
+    #              subtitle provider list but reports no results. Use this to
+    #              fully disable bulk-scan triggered work from Translarr's side
+    #              without removing the DLL or editing Emby's library config.
+    #   "smart"  — run ffprobe at the entry of /translate/sync; if there is no
+    #              non-target-lang text subtitle track to translate from, return
+    #              404 without enqueueing. Avoids the noisy $0 job rows produced
+    #              when Emby's "Download missing subtitles" task hits files that
+    #              only have English audio/subs.
+    #   "always" — original v0.1 behavior: enqueue every request, let the worker
+    #              ffprobe and skip if there is nothing to translate. Keeps the
+    #              full job-row audit trail (visible in the dashboard).
+    # Default is "smart" — same effective behavior as "always" for callers with
+    # legitimate work but no dashboard noise for the rest.
+    emby_provider_mode: Literal["off", "smart", "always"] = "smart"
+
     # Push notifications. When NTFY_URL is set, Translarr POSTs a short
     # message to it whenever a translation job reaches a terminal state.
     # Works with ntfy.sh (self-hosted or public) and any HTTP endpoint
