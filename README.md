@@ -8,9 +8,9 @@
 ![Tests](https://img.shields.io/badge/tests-210-green.svg)
 ![Status](https://img.shields.io/badge/status-alpha-yellow.svg)
 
-Translarr is a self-hosted Docker container that plugs into Sonarr, Radarr, Emby, Jellyfin, and Plex. When an import lands with a subtitle track in the wrong language — Russian fansubs on a Japanese anime, hardcoded Spanish on a Korean drama, Polish on an action film — Translarr extracts the track, translates it with a context-aware LLM, adapts the timing for the target language's reading rate, and drops a clean `.srt` next to the video.
+Translarr is a self-hosted Docker container that plugs into Sonarr, Radarr, Emby, Jellyfin, and Plex. When an import lands with a subtitle track in the wrong language (Russian fansubs on a Japanese anime, hardcoded Spanish on a Korean drama, etc.), Translarr extracts the track, translates it with an LLM, adjusts the timing for the target language's reading speed, and writes a clean `.srt` next to the video.
 
-**Validated on real media.** A 1,649-event subtitle file translated, reading-rate split to 1,964 events, 5.7 minutes wall clock, $0.30 in API cost.
+Tested on real media: a 1,649-event subtitle file, reading-rate split to 1,964 events, 5.7 min wall clock, $0.30 in API cost.
 
 ## Quickstart
 
@@ -24,7 +24,7 @@ docker run -d \
   ghcr.io/jesposito/translarr:main
 ```
 
-Open `http://your-server:9100` for the Web UI. Or verify it's running:
+Open `http://your-server:9100` for the Web UI, or verify it's running:
 
 ```bash
 curl http://localhost:9100/health
@@ -47,28 +47,28 @@ curl http://localhost:9100/jobs/abc...
 # {"state":"done","output_path":"...","cost_cents":54}
 ```
 
-The container exposes port **9000** internally. Map it to whatever host port you want (`9100`, `80`, etc.) — Translarr doesn't care about the external port.
+The container listens on port **9000** internally. Map it to whatever host port you want.
 
 ## Features
 
-- **LLM router** — Anthropic Claude (default), OpenAI, DeepSeek, Google Gemini, Ollama (local, free)
-- **6 translation presets** — Quick & Cheap / Balanced / Best Quality / Local & Free / DeepSeek Budget / Gemini Flash
-- **Subtitle pipeline** — ffmpeg-extracted track from any container, parsed by pysubs2, ASS/SSA style-tag preservation
-- **Sliding-context translation** — 30-line batches with 10-line prior context for consistent names and pronouns
-- **Reading-rate adapter** — auto-splits lines that would be unreadable; redistributes timing proportionally
-- **Source language auto-detection** — ffprobe reads the track's language tag; no manual `source_lang` needed
-- **Cost guards** — daily and per-job spend caps, per-job timeout kill-switch
-- **Live-mutable settings** — change model, provider, concurrency, cost caps via the Settings page; zero restarts
-- **Sonarr/Radarr/Plex webhooks** — opt-in per movie/series via tags
-- **Emby/Jellyfin webhooks** — retroactive translation on library scan or on-demand via playback events
-- **Emby plugin** — integrates into the player's subtitle search modal (see [Emby Plugin](#emby-plugin-optional) below)
-- **Item-specific library refresh** — Emby/Jellyfin refresh just the translated item (~2s) instead of full library scan
-- **Per-series config** — different source/target language defaults per series, auto-applied by path
-- **Glossary** — per-series term dictionaries keep character names consistent across episodes
-- **File browser** — explore your media library from the UI, see which files have translations, coverage stats
-- **Push notifications** — ntfy.sh integration for translation completion alerts
-- **Output-collision policy** — `.translarr.srt` infix never overwrites human/Bazarr/embedded subs
-- **Web UI** — dashboard, job history, real-time stats, budget tracking, library browser, glossary editor, settings
+- **LLM router**: Anthropic Claude (default), OpenAI, DeepSeek, Google Gemini, Ollama (local, free)
+- **6 translation presets**: Quick & Cheap, Balanced, Best Quality, Local & Free, DeepSeek Budget, Gemini Flash
+- **Subtitle pipeline**: ffmpeg extraction from any container, pysubs2 parsing, ASS/SSA style-tag pass-through
+- **Sliding-context translation**: 30-line batches with 10-line prior context so names and pronouns stay consistent
+- **Reading-rate adapter**: auto-splits lines that would be unreadable, redistributes timing to match
+- **Source language auto-detection**: ffprobe reads the track's language tag so you don't have to set it manually
+- **Cost guards**: daily and per-job spend caps, per-job timeout kill-switch
+- **Live-mutable settings**: change model, provider, concurrency, cost caps via the Settings page with no restart
+- **Sonarr/Radarr/Plex webhooks**: opt-in per movie/series via tags
+- **Emby/Jellyfin webhooks**: retroactive translation on library scan or on-demand via playback events
+- **Emby plugin**: shows up in the player's subtitle search modal (see below)
+- **Item-specific library refresh**: Emby/Jellyfin refresh just the translated item (~2s) instead of doing a full scan
+- **Per-series config**: different source/target language defaults per series, applied automatically by path
+- **Glossary**: per-series term dictionaries keep character names consistent across episodes
+- **File browser**: browse your media library from the UI, see which files have translations, coverage stats
+- **Push notifications**: ntfy.sh integration for translation completion alerts
+- **Output-collision policy**: `.translarr.srt` infix means it never overwrites human/Bazarr/embedded subs
+- **Web UI**: dashboard, job history, live stats, budget tracking, library browser, glossary editor, settings
 - **210 tests, all green**
 
 ## Wiring into the arr stack
@@ -80,92 +80,92 @@ Translarr only acts on items that **opt in via tag**. To enable translation for 
 3. Configure the Connect webhook below
 4. Imports of tagged items auto-enqueue a translation job
 
-**Radarr → Settings → Connect → Add → Webhook:**
+**Radarr -> Settings -> Connect -> Add -> Webhook:**
 - URL: `http://translarr:9000/webhooks/radarr` (use your Docker host IP if Radarr is on a different network)
 - Triggers: `On Import`, `On Upgrade`
 - Optional headers: `X-Translarr-Secret: <secret>` (if `WEBHOOK_SECRET` is set)
 
-**Sonarr → Settings → Connect → Add → Webhook:**
+**Sonarr -> Settings -> Connect -> Add -> Webhook:**
 - URL: `http://translarr:9000/webhooks/sonarr`
 - Same as above, ending in `/sonarr`
 
-**Emby → Notifications → Add → Webhook:**
+**Emby -> Notifications -> Add -> Webhook:**
 - URL: `http://translarr:9000/webhooks/emby`
 - Events: `Library New`, `Library Updated`
 
-**Jellyfin** — requires the [Webhook plugin](https://github.com/jellyfin/jellyfin-plugin-webhook):
+**Jellyfin** (requires the [Webhook plugin](https://github.com/jellyfin/jellyfin-plugin-webhook)):
 - URL: `http://translarr:9000/webhooks/jellyfin`
 - Triggers: `ItemAdded`
 
-**Plex** — add a webhook via Plex settings or Tautulli:
+**Plex** (via Plex settings or Tautulli):
 - URL: `http://translarr:9000/webhooks/plex`
 - Handles `library.new` and `media.play` events
 
 ## Emby Plugin (optional)
 
-The Emby plugin adds a "★ Translarr — translate to EN" option inside Emby's player subtitle search modal. When a user opens the subtitle picker on a movie or episode, they see the Translarr option alongside OpenSubtitles and other providers. Clicking it triggers an on-demand translation.
+The Emby plugin adds a "Translarr: translate to EN" option inside Emby's subtitle search modal. When you open the subtitle picker on a movie or episode, you'll see the Translarr option next to OpenSubtitles and other providers. Clicking it kicks off a translation.
 
-The plugin is **not required** — webhooks work without it. It just adds the in-player UX.
+The plugin is **not required**. Webhooks work fine without it. This just adds the in-player UX.
 
 ### How it works
 
 1. The plugin registers as an `ISubtitleProvider` inside Emby
-2. When a user opens the subtitle search modal, the plugin returns a virtual "translate to EN" entry
-3. When the user clicks that entry, the plugin calls the Translarr server's `/translate` API
-4. The server queues the translation job, runs it through the LLM pipeline, and writes the `.srt`
-5. Emby picks up the new subtitle file and displays it in the player
+2. When you open the subtitle search modal, the plugin shows a "translate to EN" entry
+3. Clicking it calls the Translarr server's `/translate` API
+4. The server queues the job, runs it through the LLM pipeline, and writes the `.srt`
+5. Emby picks up the new subtitle file and shows it in the player
 
-The plugin never does any translation itself — it's a thin HTTP client that delegates everything to the Translarr container.
+The plugin doesn't do any translation itself. It's just a thin HTTP client that talks to the Translarr container.
 
 ### Install
 
-1. Download [`Translarr.dll`](https://github.com/jesposito/translarr/raw/main/plugins/emby/publish/Translarr.dll) from this repo
-2. Copy it to your Emby server's plugins directory (typically `/config/plugins/` inside the Emby container, or `/mnt/user/appdata/emby/plugins/` on Unraid)
+1. Download [`Translarr.dll`](https://github.com/jesposito/translarr/raw/main/plugins/emby/publish/Translarr.dll)
+2. Copy it to your Emby plugins directory (`/config/plugins/` inside the Emby container, or `/mnt/user/appdata/emby/plugins/` on Unraid)
 3. Restart Emby
-4. Go to Emby → Settings → Plugins → Translarr
+4. Go to Emby -> Settings -> Plugins -> Translarr
 5. Set the Translarr server URL (e.g. `http://192.168.1.100:9100`) and save
 
 ### Requirements
 
 - Emby Server 4.9+
-- The Translarr Docker container must be running and accessible from Emby's network
+- Translarr container must be running and reachable from Emby
 - Both Emby and Translarr must see the same media files (same mount paths)
 
 ## Configuration
 
-All config via env vars, `.env`, or the Settings page in the Web UI. Settings changed via the UI take effect immediately without a restart.
+All config via env vars, `.env`, or the Settings page in the Web UI. Settings changed in the UI take effect right away, no restart needed.
 
 | Variable | Default | Notes |
 |----------|---------|-------|
 | `LLM_PROVIDER` | `anthropic` | `anthropic`, `openai`, `ollama`, `deepseek`, `gemini` |
-| `LLM_MODEL` | `claude-sonnet-4-6` | Provider-specific model id |
-| `ANTHROPIC_API_KEY` | — | Required for `anthropic` |
-| `OPENAI_API_KEY` | — | Required for `openai` |
-| `DEEPSEEK_API_KEY` | — | Required for `deepseek` |
-| `GEMINI_API_KEY` | — | Required for `gemini` |
+| `LLM_MODEL` | `claude-sonnet-4-6` | Model id for your chosen provider |
+| `ANTHROPIC_API_KEY` | | Required for `anthropic` |
+| `OPENAI_API_KEY` | | Required for `openai` |
+| `DEEPSEEK_API_KEY` | | Required for `deepseek` |
+| `GEMINI_API_KEY` | | Required for `gemini` |
 | `OLLAMA_HOST` | `http://ollama:11434` | Required for `ollama` |
 | `MEDIA_ROOT` | `/media` | Where the volume is mounted inside the container |
 | `TRANSLARR_DATA_DIR` | `./data` | SQLite DB lives here |
 | `TARGET_LANG` | `en` | ISO 639-1 target language |
-| `READING_RATE_CPS` | `17` | Max chars/sec (15–17 is the industry comfort band for English) |
+| `READING_RATE_CPS` | `17` | Max chars/sec (15-17 is standard for English) |
 | `MAX_CONCURRENT` | `2` | Parallel translation jobs |
-| `CONTEXT_WINDOW_LINES` | `10` | Prior translated lines passed to the LLM for context |
-| `MAX_COST_CENTS_PER_DAY` | `1000` | Daily LLM spend cap ($10). Exceeded → HTTP 429 on new jobs |
-| `MAX_COST_CENTS_PER_JOB` | `500` | Per-job cap ($5); aborts mid-batch if exceeded |
-| `JOB_TIMEOUT_SECONDS` | `1800` | Per-job wall-clock cap (30 min) |
-| `RADARR_TRANSLATE_TAG` | `radarr_translate` | Tag that opts a movie in for auto-translation |
-| `SONARR_TRANSLATE_TAG` | `sonarr_translate` | Tag that opts a series in for auto-translation |
-| `WEBHOOK_SECRET` | — | Optional shared secret on webhook calls |
-| `EMBY_URL` | — | Emby server URL for post-translation library refresh |
-| `EMBY_API_KEY` | — | Emby API key |
-| `JELLYFIN_URL` | — | Jellyfin server URL for post-translation library refresh |
-| `JELLYFIN_API_KEY` | — | Jellyfin API key |
-| `NTFY_URL` | — | ntfy.sh push notification endpoint. Empty = off |
+| `CONTEXT_WINDOW_LINES` | `10` | Prior translated lines fed to the LLM for context |
+| `MAX_COST_CENTS_PER_DAY` | `1000` | Daily spend cap ($10). Goes over = HTTP 429 |
+| `MAX_COST_CENTS_PER_JOB` | `500` | Per-job cap ($5). Kills the job mid-batch if exceeded |
+| `JOB_TIMEOUT_SECONDS` | `1800` | Per-job wall-clock timeout (30 min) |
+| `RADARR_TRANSLATE_TAG` | `radarr_translate` | Tag that opts a movie in |
+| `SONARR_TRANSLATE_TAG` | `sonarr_translate` | Tag that opts a series in |
+| `WEBHOOK_SECRET` | | Optional shared secret for webhook calls |
+| `EMBY_URL` | | Emby server URL for post-translation refresh |
+| `EMBY_API_KEY` | | Emby API key |
+| `JELLYFIN_URL` | | Jellyfin server URL for post-translation refresh |
+| `JELLYFIN_API_KEY` | | Jellyfin API key |
+| `NTFY_URL` | | ntfy.sh endpoint for push notifications. Empty = off |
 | `LOG_LEVEL` | `INFO` | |
 
 ## Cost estimate (2026 pricing)
 
-Approximate per-film cost for a 1500-event subtitle file:
+Rough per-film cost for a 1500-event subtitle file:
 
 | Model | Per-film cost |
 |-------|---------------|
@@ -174,7 +174,7 @@ Approximate per-film cost for a 1500-event subtitle file:
 | Claude Opus 4.7 | ~$2.70 |
 | DeepSeek Chat | ~$0.08 |
 | Gemini 2.5 Flash | ~$0.04 |
-| Ollama qwen3:14b | $0 (local CPU/GPU) |
+| Ollama qwen3:14b | $0 (local) |
 
 See `docs/ARCHITECTURE.md` for the token-budget math.
 
@@ -182,78 +182,76 @@ See `docs/ARCHITECTURE.md` for the token-budget math.
 
 ```
                     What you have
-                          │
-            ┌─────────────┴──────────────┐
-            ▼                            ▼
-  No subtitles anywhere          Subtitles in the wrong language
-            │                            │
-            ▼                            ▼
-       Whisper (subgen)              ┌─────────┐
-       Audio → text                  │TRANSLARR│
-       (lossy, hallucinates names)   └─────────┘
-                                       │
-            ┌──────────────────────────┴──────┐
-            ▼                                 ▼
-  Embedded foreign track          External .srt provider
-  (Russian, Japanese, etc.)       (OpenSubtitles, Jimaku — v0.8a+)
-            │                                 │
-            └──────────────┬──────────────────┘
-                           ▼
+                          |
+            +-------------+--------------+
+            v                            v
+  No subtitles anywhere       Subtitles in the wrong language
+            |                            |
+            v                            v
+       Whisper (subgen)            +-----------+
+       Audio -> text               |TRANSLARR  |
+       (lossy, guesses names)      +-----------+
+                                          |
+            +-----------------------------+---------+
+            v                                       v
+  Embedded foreign track              External .srt provider
+  (Russian, Japanese, etc.)           (OpenSubtitles, Jimaku, planned)
+            |                                       |
+            +------------------+--------------------+
+                               v
               LLM translation with sliding context
               + reading-rate adapter
               + ASS/SSA style-tag preservation
-                           │
-                           ▼
+                               |
+                               v
               <basename>.en.translarr.srt next to the video
               + library refresh in Emby/Jellyfin
 ```
 
-Translarr does NOT compete with Bazarr (which fetches existing subs) or subgen (which transcribes audio). It solves the third case neither of them covers: **the existing subtitle track is in the wrong language and we should translate it.**
+Bazarr fetches existing subs. Subgen transcribes audio. Translarr translates the subtitle track that's already there. Different jobs.
 
 ## Roadmap
 
-Translarr is a free, self-hosted tool. The full vision ships before any "launch" push.
+Free, self-hosted, no deadline.
 
 | Version | Scope | Status |
 |---------|-------|--------|
-| v0.1 | Server brain: webhooks, LLM router, sub pipeline, reading-rate, tag-parsing, cost guards | ✅ Shipped |
-| v0.1.5 | Persistent queue, async `/translate`, worker pool, cost-tracker | ✅ Shipped |
-| v0.1.6 | Source-lang auto-detect, preflight estimates, presets, error cleanup, Unraid template | ✅ Shipped |
-| v0.2 | Emby plugin (ISubtitleProvider + scheduled task + settings page) | ✅ Shipped |
-| v0.3 | DeepSeek/Gemini providers, Plex webhook, item-specific library refresh, GHCR CI, file browser, glossary, per-series config | ✅ Shipped |
-| v0.4 | Jellyfin plugin (port of v0.2, public repo) | Next |
-| v0.7 | Audio-grounded correction (contingent on critic telemetry) | Conditional |
+| v0.1 | Server brain: webhooks, LLM router, sub pipeline, reading-rate, cost guards | Shipped |
+| v0.1.5 | Persistent queue, async `/translate`, worker pool, cost tracker | Shipped |
+| v0.1.6 | Source-lang auto-detect, preflight estimates, presets, Unraid template | Shipped |
+| v0.2 | Emby plugin (ISubtitleProvider + settings page) | Shipped |
+| v0.3 | DeepSeek/Gemini providers, Plex webhook, GHCR CI, file browser, glossary, per-series config | Shipped |
+| v0.4 | Jellyfin plugin | Next |
 | v0.8a | Direct subtitle provider integrations (OpenSubtitles, Jimaku, Animetosho) | Planned |
-| v0.8b | Optional Bazarr-as-fetch-proxy adapter | Planned |
-| v0.9 | Whisper-from-audio fallback for no-subs case | Planned |
-| v1.0 | Strategy chain endpoint — auto-fallback through embedded → fetch → audio | Planned |
+| v0.9 | Whisper-from-audio fallback | Planned |
+| v1.0 | Strategy chain: auto-fallback through embedded, fetch, audio | Planned |
 
 ## Architecture
 
 ```
-                  ┌──────────────────────────────────────┐
-                  │          Translarr Server            │
-                  │  ┌─────────────────────────────┐     │
-   Radarr ──webhook─►/webhooks/radarr ─┐           │     │
-   Sonarr ──webhook─►/webhooks/sonarr ─┤  enqueue  │     │
-     Emby ──webhook─►/webhooks/emby  ──┤     ▼     │     │
-  Jellyfin ──webhook─►/webhooks/jellyfin─┘  ┌────────┐   │
-     Plex ──webhook─►/webhooks/plex ────────►SQLite │   │
-   Direct ──POST───►/translate ────────────►│ queue  │   │
-                  │                       └────────┘   │
-                  │  workers ◄────claim───┤            │
-                  │     │                 └────────┘   │
-                  │     ▼                              │
-                  │  Sub pipeline                      │
-                  │  ├─ ffmpeg extract OR direct .ass  │
-                  │  ├─ pysubs2 parse                  │
-                  │  ├─ batch + sliding context        │
-                  │  ├─ LLM router (5 providers)       │
-                  │  ├─ reading-rate adapt + split     │
-                  │  └─ write .translarr.srt + refresh │
-                  └──────────────────────────────────────┘
-                              │
-                              ▼
+                  +--------------------------------------+
+                  |          Translarr Server            |
+                  |  +-----------------------------+     |
+   Radarr --webhook-->/webhooks/radarr -+           |     |
+   Sonarr --webhook-->/webhooks/sonarr -+  enqueue  |     |
+     Emby --webhook-->/webhooks/emby  --+     |     |     |
+  Jellyfin --webhook-->/webhooks/jellyfin-+  v     |     |
+     Plex --webhook-->/webhooks/plex -------+----+  |     |
+   Direct --POST--->/translate ---------------+  v  |     |
+                  |                       +--------+ |     |
+                  |  workers <---claim----|SQLite  | |     |
+                  |     |                 | queue  | |     |
+                  |     v                 +--------+ |     |
+                  |  Sub pipeline                    |     |
+                  |  +- ffmpeg extract OR direct .ass|     |
+                  |  +- pysubs2 parse                |     |
+                  |  +- batch + sliding context      |     |
+                  |  +- LLM router (5 providers)     |     |
+                  |  +- reading-rate adapt + split   |     |
+                  |  +- write .translarr.srt + refresh|    |
+                  +--------------------------------------+ 
+                              |
+                              v
                 <basename>.en.translarr.srt
                 next to source media
 ```
@@ -262,32 +260,32 @@ Translarr is a free, self-hosted tool. The full vision ships before any "launch"
 
 ```
 translarr/
-├── server/              # Python FastAPI brain
-│   ├── main.py
-│   ├── config.py
-│   ├── cost_tracker.py
-│   ├── db.py            # SQLite + migrations
-│   ├── browse.py        # File browser API
-│   ├── glossary.py      # Per-series glossary persistence
-│   ├── series_config.py # Per-series language overrides
-│   ├── library_refresh.py
-│   ├── llm/             # router + 5 providers
-│   ├── queue/           # base.py + sqlite.py + worker.py
-│   ├── subs/            # extract.py + pipeline.py + reading_rate.py
-│   └── webhooks/        # radarr, sonarr, emby, jellyfin, plex
-├── ui/                  # SvelteKit static Web UI
-├── plugins/
-│   ├── emby/            # C# Emby plugin (ISubtitleProvider)
-│   └── jellyfin/        # C# Jellyfin plugin (planned)
-├── templates/           # Unraid Community Applications template
-├── tests/               # pytest — 210 tests
-├── docs/
-│   ├── ARCHITECTURE.md
-│   ├── INSTALL.md
-│   └── COMPETITIVE-ANALYSIS.md
-├── docker-compose.yml
-├── Dockerfile
-└── pyproject.toml
++-- server/              # Python FastAPI
+|   +-- main.py
+|   +-- config.py
+|   +-- cost_tracker.py
+|   +-- db.py            # SQLite + migrations
+|   +-- browse.py        # File browser API
+|   +-- glossary.py      # Per-series glossary persistence
+|   +-- series_config.py # Per-series language overrides
+|   +-- library_refresh.py
+|   +-- llm/             # router + 5 providers
+|   +-- queue/           # base.py + sqlite.py + worker.py
+|   +-- subs/            # extract.py + pipeline.py + reading_rate.py
+|   +-- webhooks/        # radarr, sonarr, emby, jellyfin, plex
++-- ui/                  # SvelteKit static Web UI
++-- plugins/
+|   +-- emby/            # C# Emby plugin (ISubtitleProvider)
+|   +-- jellyfin/        # C# Jellyfin plugin (planned)
++-- templates/           # Unraid Community Applications template
++-- tests/               # pytest: 210 tests
++-- docs/
+|   +-- ARCHITECTURE.md
+|   +-- INSTALL.md
+|   +-- COMPETITIVE-ANALYSIS.md
++-- docker-compose.yml
++-- Dockerfile
++-- pyproject.toml
 ```
 
 ## License

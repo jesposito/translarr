@@ -12,13 +12,13 @@
 Features:
 - LLM-powered translation with context awareness (Anthropic, OpenAI, DeepSeek, Gemini, or local Ollama)
 - Automatic reading-rate adaptation for readable subtitles
-- Tag-based opt-in via Sonarr/Radarr — only translates what you tag
+- Tag-based opt-in via Sonarr/Radarr: only translates what you tag
 - On-demand translation when you press Play in Emby
 - 6 translation presets (Quick &amp; Cheap, Balanced, Best Quality, Local &amp; Free, DeepSeek Budget, Gemini Flash)
 - Cost guards: daily and per-job spend caps
 - Push notifications via ntfy.sh
 - Web UI: dashboard, job history, settings, library browser, glossary editor
-- All settings are live-mutable — no container restart needed</Overview>
+- All settings are live-mutable, no container restart needed</Overview>
 
   <Category>MediaApp:Other</Category>
   <WebUI>http://[IP]:[PORT:9000]</WebUI>

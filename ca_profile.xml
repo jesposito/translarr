@@ -5,15 +5,15 @@ Translarr is a self-hosted subtitle translator that plugs into Sonarr, Radarr, E
 When an import lands with subtitles in the wrong language (Russian fansubs on a Japanese anime, hardcoded Spanish on a Korean drama, etc.), Translarr extracts the track, translates it with a context-aware LLM, adapts the timing for the target language's reading rate, and drops a clean `.srt` next to the video.
 
 **Features:**
-- LLM-powered translation (Anthropic Claude, OpenAI, DeepSeek, Gemini, or local Ollama — free)
+- LLM-powered translation (Anthropic Claude, OpenAI, DeepSeek, Gemini, or local Ollama, free)
 - Automatic reading-rate adaptation so subtitles stay readable
-- Tag-based opt-in via Sonarr/Radarr — only translates what you tag
+- Tag-based opt-in via Sonarr/Radarr: only translates what you tag
 - On-demand translation from Emby/Jellyfin player subtitle modal
 - 6 translation presets: Quick &amp; Cheap, Balanced, Best Quality, Local &amp; Free, DeepSeek Budget, Gemini Flash
 - Cost guards: daily and per-job spend caps
 - Push notifications via ntfy.sh
 - Web UI: dashboard, job history, settings, library browser, glossary editor
-- All settings are live-mutable — no container restart needed
+- All settings are live-mutable, no container restart needed
   </Profile>
   <Icon>https://raw.githubusercontent.com/jesposito/translarr/main/templates/translarr.svg</Icon>
   <WebPage>https://github.com/jesposito/translarr</WebPage>
