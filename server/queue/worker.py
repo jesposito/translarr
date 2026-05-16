@@ -1,12 +1,18 @@
 """Background worker loop. Polls the queue, runs jobs through the translate pipeline.
 
 v0.1.5: single-process, multiple asyncio worker tasks. v0.6+ may move to multi-process.
+
+Worker pool state lives on a single ``_Pool`` instance so the start/adjust/shutdown
+lifecycle is explicit and testable. ``start_workers()`` resets the pool every call,
+``adjust_pool()`` reads from the same instance, and ``shutdown_pool()`` clears it
+again so test fixtures don't see stale tasks across runs.
 """
 
 from __future__ import annotations
 
 import asyncio
 import contextlib
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import structlog
@@ -58,10 +64,26 @@ def _short_error(error: str) -> str:
     first_line = error.split("\n")[0]
     return first_line[:200]
 
-# Module-level pool state so adjust_pool() can resize dynamically.
-_stop_event: asyncio.Event | None = None
-_tasks: list[asyncio.Task] = []
-_next_worker_id: int = 0
+
+@dataclass
+class _Pool:
+    """Holds the live worker-pool state.
+
+    A single module-level instance acts as the singleton; tests can reset
+    by calling ``shutdown_pool()`` between cases.
+    """
+
+    stop_event: asyncio.Event | None = None
+    tasks: list[asyncio.Task] = field(default_factory=list)
+    next_worker_id: int = 0
+
+    def reset(self) -> None:
+        self.stop_event = None
+        self.tasks = []
+        self.next_worker_id = 0
+
+
+_pool = _Pool()
 
 
 def _job_to_request(job: Job) -> TranslateRequest:
@@ -206,21 +228,20 @@ def adjust_pool() -> None:
     Growth is immediate (new tasks spawn). Shrinking is graceful — excess
     workers notice on their next loop iteration and self-terminate.
     """
-    global _next_worker_id
-
-    if _stop_event is None:
+    if _pool.stop_event is None:
         return  # Pool not started yet (shouldn't happen in prod).
 
+    # Prune completed tasks first so the live count is accurate.
+    _pool.tasks = [t for t in _pool.tasks if not t.done()]
     target = settings.max_concurrent
-    alive = [t for t in _tasks if not t.done()]
-    current = len(alive)
+    current = len(_pool.tasks)
 
     if target > current:
         for _ in range(target - current):
-            tid = _next_worker_id
-            _next_worker_id += 1
-            task = asyncio.ensure_future(worker_loop(_stop_event, tid))
-            _tasks.append(task)
+            tid = _pool.next_worker_id
+            _pool.next_worker_id += 1
+            task = asyncio.ensure_future(worker_loop(_pool.stop_event, tid))
+            _pool.tasks.append(task)
         log.info("worker_pool_grew", spawned=target - current, total=target)
     elif target < current:
         # Excess workers self-terminate on their next loop iteration.
@@ -229,12 +250,20 @@ def adjust_pool() -> None:
 
 
 async def start_workers(stop_event: asyncio.Event) -> list[asyncio.Task]:
-    """Spawn N worker tasks; return handles so caller can await on shutdown."""
-    global _stop_event, _next_worker_id
-    _stop_event = stop_event
-    _next_worker_id = 0
+    """Spawn N worker tasks; return handles so caller can await on shutdown.
+
+    Resets pool state on every call so re-initialisation (e.g. in tests
+    or after a hot reload) doesn't accumulate stale task references.
+    """
+    _pool.reset()
+    _pool.stop_event = stop_event
     n = settings.max_concurrent
     tasks = [asyncio.create_task(worker_loop(stop_event, i)) for i in range(n)]
-    _next_worker_id = n
-    _tasks.extend(tasks)
+    _pool.next_worker_id = n
+    _pool.tasks = list(tasks)
     return tasks
+
+
+def shutdown_pool() -> None:
+    """Clear all pool state. Tests call this in teardown."""
+    _pool.reset()

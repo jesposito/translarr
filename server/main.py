@@ -21,7 +21,11 @@ from server.glossary import get_glossary as glossary_get
 from server.glossary import import_entries as glossary_import_entries
 from server.glossary import list_glossaries as glossary_list
 from server.glossary import upsert_entry as glossary_upsert_entry
-from server.models import HealthResponse, TranslateRequest
+from server.models import (
+    HealthResponse,
+    SeriesConfigRequest,
+    TranslateRequest,
+)
 from server.queue.base import Job, JobState, compute_dedup_key
 from server.queue.sqlite import get_queue
 from server.queue.worker import start_workers
@@ -336,7 +340,9 @@ async def get_presets() -> dict:
 async def apply_preset(body: dict) -> dict:
     """Apply a named preset (quick_cheap, balanced, best_quality, local_free).
 
-    Returns the freshly serialized fields for every key the preset touched.
+    Body: ``{"preset": "<name>"}``. Returns the freshly serialized fields
+    for every key the preset touched so the Settings UI can refresh the
+    affected form rows in one round-trip.
     """
     name = body.get("preset")
     if not name:
@@ -345,7 +351,6 @@ async def apply_preset(body: dict) -> dict:
         result = _apply_preset(name)
     except SettingValidationError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
-    # Return fresh field data for every applied key.
     fields = {k: _serialize_field(k) for k in result["applied"]}
     return {"status": "ok", "preset": result, "fields": fields}
 
@@ -357,7 +362,8 @@ async def patch_config(body: dict) -> dict:
     Body: ``{"key": "<name>", "value": <typed>}``. Returns the freshly
     serialized field on success so the client can echo the
     server-coerced value (e.g. trimmed string, parsed int) back into the
-    form.
+    form. 400 (not 422) keeps a stable error contract for the Web UI's
+    inline form error display.
     """
     key = body.get("key")
     if not isinstance(key, str) or not key:
@@ -619,7 +625,10 @@ async def get_glossary(glossary_id: str) -> dict:
 async def upsert_glossary_entry(glossary_id: str, body: dict) -> dict:
     """Add or update a single glossary entry.
 
-    Body: {source_term, translation, target_lang?, notes?}
+    Body: ``{source_term, translation, target_lang?, notes?}``. Manual
+    validation (not Pydantic) so we return 400 with a human-readable
+    detail instead of Pydantic's structured 422 — the Web UI displays
+    detail strings inline.
     """
     source = body.get("source_term", "").strip()
     translation = body.get("translation", "").strip()
@@ -654,7 +663,10 @@ async def delete_glossary(glossary_id: str) -> dict:
 async def import_glossary(glossary_id: str, body: dict) -> dict:
     """Bulk import glossary entries.
 
-    Body: {entries: [{source_term, translation, notes?}], target_lang?}
+    Body: ``{entries: [{source_term, translation, notes?}], target_lang?}``.
+    Entries with empty source_term or translation are silently skipped (the
+    importer pre-filters), so callers can paste tab-separated text without
+    pre-cleaning blank rows.
     """
     entries = body.get("entries", [])
     if not entries:
@@ -693,19 +705,16 @@ async def get_series(series_id: str) -> dict:
 
 
 @app.put("/series/{series_id}")
-async def upsert_series(series_id: str, body: dict) -> dict:
-    """Create or update a series config.
-
-    Body: {source_lang?, target_lang?, llm_provider?, llm_model?, path_prefix?, auto_translate?}
-    """
+async def upsert_series(series_id: str, body: SeriesConfigRequest) -> dict:
+    """Create or update a series config."""
     series_upsert(
         series_id,
-        source_lang=body.get("source_lang"),
-        target_lang=body.get("target_lang"),
-        llm_provider=body.get("llm_provider"),
-        llm_model=body.get("llm_model"),
-        path_prefix=body.get("path_prefix"),
-        auto_translate=body.get("auto_translate", False),
+        source_lang=body.source_lang,
+        target_lang=body.target_lang,
+        llm_provider=body.llm_provider,
+        llm_model=body.llm_model,
+        path_prefix=body.path_prefix,
+        auto_translate=body.auto_translate,
     )
     return {"status": "ok"}
 
