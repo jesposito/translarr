@@ -106,6 +106,18 @@
           aria-current={isActive('/settings', $page.url.pathname) ? 'page' : undefined}
         >Settings</a>
       </li>
+      <li>
+        <a
+          href="/library"
+          aria-current={isActive('/library', $page.url.pathname) ? 'page' : undefined}
+        >Library</a>
+      </li>
+      <li>
+        <a
+          href="/glossary"
+          aria-current={isActive('/glossary', $page.url.pathname) ? 'page' : undefined}
+        >Glossary</a>
+      </li>
     </ul>
   </nav>
 
