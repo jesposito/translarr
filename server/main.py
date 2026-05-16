@@ -242,6 +242,18 @@ async def get_stats() -> dict:
     return get_queue().aggregate_stats()
 
 
+@app.get("/browse")
+async def browse(path: str = "") -> dict:
+    """File browser — list media directories and translation coverage.
+
+    Path is relative to MEDIA_ROOT. Returns dirs and media files with
+    their translation status. Used by the Web UI's Library page.
+    """
+    from server.browse import browse_path
+
+    return browse_path(path)
+
+
 def _serialize_field(key: str) -> dict:
     """Per-field payload shape for GET /config and PATCH /config responses.
 
@@ -560,6 +572,83 @@ async def get_output(path: str) -> Response:
     if p.suffix.lower() not in (".srt", ".ass", ".ssa", ".vtt"):
         raise HTTPException(status_code=415, detail="unsupported output extension")
     return Response(content=p.read_bytes(), media_type="text/plain; charset=utf-8")
+
+
+# --- Glossary API ----------------------------------------------------------
+
+
+@app.get("/glossaries")
+async def list_glossaries() -> dict:
+    """List all glossaries with entry counts."""
+    from server.glossary import list_glossaries as _list
+
+    return {"glossaries": _list()}
+
+
+@app.get("/glossaries/{glossary_id}")
+async def get_glossary(glossary_id: str) -> dict:
+    """Get all entries for a glossary."""
+    from server.glossary import get_glossary as _get
+
+    entries = _get(glossary_id)
+    return {"id": glossary_id, "entries": entries}
+
+
+@app.post("/glossaries/{glossary_id}")
+async def upsert_glossary_entry(glossary_id: str, body: dict) -> dict:
+    """Add or update a single glossary entry.
+
+    Body: {source_term, translation, target_lang?, notes?}
+    """
+    from server.glossary import upsert_entry
+
+    source = body.get("source_term", "").strip()
+    translation = body.get("translation", "").strip()
+    if not source or not translation:
+        raise HTTPException(status_code=400, detail="source_term and translation required")
+    upsert_entry(
+        glossary_id,
+        source,
+        translation,
+        target_lang=body.get("target_lang", "en"),
+        notes=body.get("notes"),
+    )
+    return {"status": "ok"}
+
+
+@app.delete("/glossaries/{glossary_id}/{source_term}")
+async def delete_glossary_entry(glossary_id: str, source_term: str, target_lang: str = "en") -> dict:
+    """Delete a single glossary entry."""
+    from server.glossary import delete_entry
+
+    deleted = delete_entry(glossary_id, source_term, target_lang)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="entry not found")
+    return {"status": "ok"}
+
+
+@app.delete("/glossaries/{glossary_id}")
+async def delete_glossary(glossary_id: str) -> dict:
+    """Delete an entire glossary."""
+    from server.glossary import delete_glossary as _delete
+
+    count = _delete(glossary_id)
+    return {"status": "ok", "deleted": count}
+
+
+@app.post("/glossaries/{glossary_id}/import")
+async def import_glossary(glossary_id: str, body: dict) -> dict:
+    """Bulk import glossary entries.
+
+    Body: {entries: [{source_term, translation, notes?}], target_lang?}
+    """
+    from server.glossary import import_entries
+
+    entries = body.get("entries", [])
+    if not entries:
+        raise HTTPException(status_code=400, detail="no entries provided")
+    count = import_entries(glossary_id, entries, target_lang=body.get("target_lang", "en"))
+    return {"status": "ok", "imported": count}
 
 
 # --- Static UI mount (v0.6.5) ---------------------------------------------
