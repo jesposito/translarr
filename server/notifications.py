@@ -30,25 +30,15 @@ Config:
 
 from __future__ import annotations
 
-import asyncio
 from pathlib import Path
 
 import httpx
 import structlog
 
+from server.async_utils import fire_and_forget
 from server.config import settings
 
 log = structlog.get_logger()
-
-# Strong refs for fire-and-forget tasks so they survive GC long enough
-# to actually fire. Tasks self-remove via add_done_callback.
-_PENDING: set[asyncio.Task] = set()
-
-
-def _spawn(coro) -> None:
-    task = asyncio.create_task(coro)
-    _PENDING.add(task)
-    task.add_done_callback(_PENDING.discard)
 
 
 def _dollars(cents: int) -> str:
@@ -89,7 +79,7 @@ def notify_success(*, media_path: str, target_lang: str, cost_cents: int, durati
         f"Translated to {target_lang.upper()} in {duration_s:.0f}s "
         f"({_dollars(cost_cents)})"
     )
-    _spawn(_post(title, body, priority=3, tags="white_check_mark,sparkles"))
+    fire_and_forget(_post(title, body, priority=3, tags="white_check_mark,sparkles"))
 
 
 def notify_failure(*, media_path: str, target_lang: str, error: str) -> None:
@@ -100,7 +90,7 @@ def notify_failure(*, media_path: str, target_lang: str, error: str) -> None:
     # Keep the body short — the full error is in the Translarr Web UI.
     short_err = error[:200]
     body = f"Could not translate to {target_lang.upper()}.\n{short_err}"
-    _spawn(_post(title, body, priority=4, tags="warning,x"))
+    fire_and_forget(_post(title, body, priority=4, tags="warning,x"))
 
 
 def notify_skip(*, media_path: str, target_lang: str, reason: str) -> None:
@@ -109,4 +99,4 @@ def notify_skip(*, media_path: str, target_lang: str, reason: str) -> None:
         return
     title = f"Translarr skipped: {_short_name(media_path)}"
     body = f"No translation needed ({reason}). Target {target_lang.upper()}."
-    _spawn(_post(title, body, priority=2, tags="information_source"))
+    fire_and_forget(_post(title, body, priority=2, tags="information_source"))
