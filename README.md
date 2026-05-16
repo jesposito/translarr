@@ -10,7 +10,7 @@
 
 Translarr is a self-hosted Docker container that plugs into Sonarr, Radarr, Emby, Jellyfin, and Plex. When an import lands with a subtitle track in the wrong language — Russian fansubs on a Japanese anime, hardcoded Spanish on a Korean drama, Polish on an action film — Translarr extracts the track, translates it with a context-aware LLM, adapts the timing for the target language's reading rate, and drops a clean `.srt` next to the video.
 
-**Validated on a real Demon Slayer Russian-subbed WEB-DL.** 1,649 source events, 1,964 output events after reading-rate split, 5.7 minutes wall clock, $0.30 in API cost.
+**Validated on real media.** A 1,649-event subtitle file translated, reading-rate split to 1,964 events, 5.7 minutes wall clock, $0.30 in API cost.
 
 ## Quickstart
 
@@ -37,7 +37,7 @@ Translate a file:
 curl -X POST http://localhost:9100/translate \
   -H "Content-Type: application/json" \
   --data '{
-    "media_path": "Movies/Demon Slayer (2025)/movie.mkv",
+    "media_path": "Movies/Some Movie (2025)/movie.mkv",
     "source_lang": "ru",
     "target_lang": "en"
   }'
