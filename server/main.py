@@ -4,7 +4,8 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 import structlog
-from fastapi import FastAPI, HTTPException, Query, Response
+from fastapi import FastAPI, HTTPException, Query, Request, Response
+from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from server import __version__, settings_store
@@ -656,8 +657,31 @@ async def import_glossary(glossary_id: str, body: dict) -> dict:
 # does not shadow API routes registered above (/health, /translate, /jobs/*,
 # /webhooks/*). Guarded: if ui/dist/ does not exist (dev environment without
 # `npm run build`), the server still starts cleanly and GET / simply 404s.
+#
+# Starlette's StaticFiles(html=True) only serves <path>.html for explicit
+# ".html" requests — it does NOT rewrite clean URLs like /settings to
+# settings.html. SvelteKit's adapter-static with strict:true produces per-page
+# .html files (settings.html, library.html, …). To make clean SPA URLs work
+# we register explicit GET routes for each page that redirect to the .html
+# file (the StaticFiles mount serves those correctly).
 _UI_DIST = Path(__file__).resolve().parent.parent / "ui" / "dist"
 if _UI_DIST.is_dir():
+    # Serve known SPA pages via clean-URL routes.
+    _SPA_PAGES = ["translate", "settings", "library", "glossary"]
+    for _page in _SPA_PAGES:
+        _html_file = _UI_DIST / f"{_page}.html"
+        if _html_file.exists():
+
+            def _make_spa_route(html: Path):
+                async def _serve_page(request: Request) -> Response:
+                    return FileResponse(html)
+
+                return _serve_page
+
+            app.add_api_route(f"/{_page}", _make_spa_route(_html_file), methods=["GET"], name=f"spa_{_page}")
+            # Also match /page/ (trailing slash) to the same file.
+            app.add_api_route(f"/{_page}/", _make_spa_route(_html_file), methods=["GET"], name=f"spa_{_page}_slash", include_in_schema=False)
+
     app.mount("/", StaticFiles(directory=str(_UI_DIST), html=True), name="ui")
     log.info("ui_mounted", path=str(_UI_DIST))
 else:

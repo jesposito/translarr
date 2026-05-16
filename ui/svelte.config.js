@@ -12,7 +12,7 @@ const config = {
       assets: 'dist',
       fallback: 'index.html',
       precompress: false,
-      strict: true
+      strict: false
     }),
     // SPA fallback so client-side routing works under FastAPI StaticFiles.
     prerender: {
