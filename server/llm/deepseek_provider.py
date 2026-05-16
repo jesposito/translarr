@@ -1,17 +1,18 @@
-"""DeepSeek provider — OpenAI-compatible API.
+"""DeepSeek provider. OpenAI-compatible API.
 
 DeepSeek's chat API is compatible with the OpenAI SDK. Just point the
 base_url at DeepSeek's endpoint. No separate SDK needed.
-
-Pricing (2026-05): DeepSeek-V3 is ~$0.27/M input, $1.10/M output —
-cheaper than Claude Haiku with competitive translation quality.
 """
 
 from openai import AsyncOpenAI
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 from server.config import settings
-from server.llm.base import TRANSLATE_SYSTEM_PROMPT
+from server.llm.base import (
+    TRANSLATE_SYSTEM_PROMPT,
+    build_user_message,
+    reconcile_lines,
+)
 
 
 class DeepSeekProvider:
@@ -35,33 +36,17 @@ class DeepSeekProvider:
         prior_context: list[str] | None = None,
         glossary: dict[str, str] | None = None,
     ) -> list[str]:
-        system = TRANSLATE_SYSTEM_PROMPT.format(source_lang=source_lang, target_lang=target_lang)
-
-        user_parts: list[str] = []
-        if prior_context:
-            user_parts.append("Previously translated context:")
-            user_parts.extend(prior_context[-10:])
-            user_parts.append("---")
-        if glossary:
-            user_parts.append("Glossary (preserve these exactly):")
-            for src, dst in glossary.items():
-                user_parts.append(f"  {src} -> {dst}")
-            user_parts.append("---")
-        user_parts.append(f"Translate the following {len(lines)} lines:")
-        user_parts.extend(lines)
+        system = TRANSLATE_SYSTEM_PROMPT.format(
+            source_lang=source_lang, target_lang=target_lang
+        )
+        user_text = build_user_message(lines, prior_context, glossary)
 
         resp = await self.client.chat.completions.create(
             model=self.model,
             messages=[
                 {"role": "system", "content": system},
-                {"role": "user", "content": "\n".join(user_parts)},
+                {"role": "user", "content": user_text},
             ],
         )
-        text = resp.choices[0].message.content or ""
-        out = [ln for ln in text.split("\n") if ln.strip()]
-        if len(out) != len(lines):
-            if len(out) < len(lines):
-                out += [""] * (len(lines) - len(out))
-            else:
-                out = out[: len(lines)]
-        return out
+        raw = resp.choices[0].message.content or ""
+        return reconcile_lines(raw.split("\n"), len(lines))
