@@ -42,8 +42,14 @@ SCAN_TTL_SECONDS = 60
 # libraries (5000+ movies). The user's actual library has ~500.
 MAX_CANDIDATES = 10_000
 
-# Names we never treat as candidates.
-SKIP_NAMES = {".DS_Store", "Thumbs.db", ".git", "@eaDir", "Metadata", "Recordings"}
+# Names we never treat as candidates. The OS / sync-tool detritus is
+# always-skip. User-facing kinds (Books, Music, Movies, TV, …) stay —
+# we don't second-guess what's translatable on their behalf.
+SKIP_NAMES = {
+    ".DS_Store", "Thumbs.db", ".git", "@eaDir",
+    "Metadata", "Recordings",  # Emby's internal dirs
+    "lost+found",
+}
 SKIP_PREFIXES = ("._", ".")
 
 
@@ -152,36 +158,52 @@ def search_candidates(query: str, limit: int = 50) -> list[dict]:
     all_candidates = _get_cached()
     q = (query or "").strip().lower()
 
-    if not q:
-        chosen = all_candidates[:limit]
-    else:
-        starts: list[Candidate] = []
-        contains: list[Candidate] = []
-        for c in all_candidates:
-            name_lower = c.name.lower()
-            if name_lower.startswith(q):
-                starts.append(c)
-            elif q in name_lower:
-                contains.append(c)
-            if len(starts) + len(contains) >= limit * 4:
-                # Stop scanning once we've collected enough headroom.
-                break
-        chosen = (starts + contains)[:limit]
-
-    # Build lookup tables once per call so annotation is O(1) per result.
+    # Build lookup tables once per call so annotation is O(1) per item.
     glossary_index = {g["id"]: g for g in list_glossaries()}
     series_ids = {s["id"] for s in list_series()}
 
-    annotated: list[dict] = []
-    for c in chosen:
+    def annotate(c: Candidate) -> dict:
         slug = _slugify(c.name)
         g = glossary_index.get(slug)
-        annotated.append({
+        return {
             "name": c.name,
             "path": c.path,
             "kind": c.kind,
             "glossary_id": slug,
             "glossary_entry_count": g["entry_count"] if g else 0,
             "has_series_config": slug in series_ids,
-        })
-    return annotated
+        }
+
+    if not q:
+        # Empty query: rank candidates the user has already touched
+        # (has_glossary > has_series_config > alphabetical) so their
+        # actual work surfaces above the long alphabetical tail. With a
+        # 500-movie library this is the difference between "Books/A.A.
+        # Milne" at the top and "Demon Slayer (with 12 entries)" at the
+        # top.
+        scored = [annotate(c) for c in all_candidates]
+
+        def rank(r: dict) -> tuple:
+            return (
+                0 if r["glossary_entry_count"] > 0 else (1 if r["has_series_config"] else 2),
+                r["name"].lower(),
+            )
+
+        scored.sort(key=rank)
+        return scored[:limit]
+
+    # Non-empty query: prefix match outranks contains match. No
+    # alphabetical override — give people back hits in scan order
+    # within each tier, then trim.
+    starts: list[Candidate] = []
+    contains: list[Candidate] = []
+    for c in all_candidates:
+        name_lower = c.name.lower()
+        if name_lower.startswith(q):
+            starts.append(c)
+        elif q in name_lower:
+            contains.append(c)
+        if len(starts) + len(contains) >= limit * 4:
+            break
+    chosen = (starts + contains)[:limit]
+    return [annotate(c) for c in chosen]

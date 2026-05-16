@@ -187,7 +187,8 @@ def test_cache_invalidates_with_helper(tmp_path, monkeypatch):
     assert "Second" in after_invalidate
 
 
-def test_blank_query_returns_top_n_in_natural_order(tmp_path, monkeypatch):
+def test_blank_query_returns_alphabetical_when_no_user_data(tmp_path, monkeypatch):
+    """Empty query, no glossaries / configs: pure alphabetical sort."""
     _make_lib(tmp_path, {"Movies": {
         "Zebra": {"m.mkv": ""},
         "Apple": {"m.mkv": ""},
@@ -196,5 +197,57 @@ def test_blank_query_returns_top_n_in_natural_order(tmp_path, monkeypatch):
     monkeypatch.setattr(settings, "media_root", tmp_path)
     cand.invalidate_cache()
     names = [r["name"] for r in cand.search_candidates("")]
-    # Scan order is alphabetical via sorted() in _scan_library.
     assert names == ["Apple", "Banana", "Zebra"]
+
+
+def test_blank_query_ranks_user_touched_items_first(tmp_path, monkeypatch):
+    """With a large library, items that already have a glossary should
+    rise above the alphabetical tail so the user's own work is at the
+    top of the picker."""
+    _make_lib(tmp_path, {
+        "Books": {f"Author{i:03d}": {"b.epub": ""} for i in range(10)},
+        "Movies": {
+            "Apple Film": {"m.mkv": ""},
+            "Demon Slayer (2025)": {"m.mkv": ""},
+            "Zebra Doc": {"m.mkv": ""},
+        },
+    })
+    monkeypatch.setattr(settings, "media_root", tmp_path)
+    # User has worked on Demon Slayer.
+    upsert_entry("demon-slayer-2025", "Tanjiro", "Tanjiro Kamado")
+    cand.invalidate_cache()
+
+    names = [r["name"] for r in cand.search_candidates("", limit=5)]
+    # Demon Slayer (has glossary) MUST be first.
+    assert names[0] == "Demon Slayer (2025)"
+    # Rest fall back to alphabetical.
+    assert "Apple Film" in names
+
+
+def test_blank_query_ranks_series_config_above_unconfigured(tmp_path, monkeypatch):
+    """Items with a series_config but no glossary still outrank
+    untouched items."""
+    _make_lib(tmp_path, {"Movies": {
+        "Apple Film": {"m.mkv": ""},
+        "Banana Film": {"m.mkv": ""},
+        "Zebra Film": {"m.mkv": ""},
+    }})
+    monkeypatch.setattr(settings, "media_root", tmp_path)
+    upsert_series("zebra-film", target_lang="en", path_prefix="Movies/Zebra Film")
+    cand.invalidate_cache()
+    names = [r["name"] for r in cand.search_candidates("")]
+    # Zebra Film (configured) ranks ahead of Apple/Banana even though
+    # alphabetically it's last.
+    assert names[0] == "Zebra Film"
+
+
+def test_skip_lost_and_found(tmp_path, monkeypatch):
+    _make_lib(tmp_path, {
+        "lost+found": {"junk": ""},
+        "Movies": {"Real": {"m.mkv": ""}},
+    })
+    monkeypatch.setattr(settings, "media_root", tmp_path)
+    cand.invalidate_cache()
+    names = [r["name"] for r in cand.search_candidates("")]
+    assert "lost+found" not in names
+    assert "Real" in names
