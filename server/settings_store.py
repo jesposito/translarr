@@ -178,6 +178,15 @@ REGISTRY: dict[str, SettingMeta] = {
         default_label="off",
         hint="Off by default because playback events fire much more often than library scans.",
     ),
+    "emby_provider_mode": SettingMeta(
+        key="emby_provider_mode",
+        type="str",
+        section="playback",
+        description="How /translate/sync responds to the Emby subtitle-provider plugin. 'smart' (default) ffprobes first and returns 404 when there is nothing to translate, avoiding noisy $0 job rows from Emby's bulk scan. 'off' returns 404 for every request. 'always' enqueues every request (original v0.1 behavior).",
+        choices=["off", "smart", "always"],
+        mutable=True,
+        hint="If Emby's 'Download missing subtitles' scheduled task is flooding the dashboard with $0 jobs, leave on 'smart' (default).",
+    ),
     # === Push notifications ===
     "ntfy_url": SettingMeta(
         key="ntfy_url",

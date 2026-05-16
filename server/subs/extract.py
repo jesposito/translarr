@@ -178,3 +178,38 @@ def pick_source_track(
         if track_norm and track_norm != target_norm:
             return t
     return text_tracks[0]
+
+
+def has_translateable_track(tracks: list[TrackInfo], target_lang: str) -> bool:
+    """True iff the file has at least one text-based subtitle track in a
+    language other than the target.
+
+    Used by /translate/sync's "smart" provider mode to short-circuit
+    requests for files that have nothing to translate from (e.g. an
+    English-only release when target_lang is "en", or a release that
+    only has PGS/VOBSUB bitmap subs).
+
+    A text track whose language is unknown (no ``language`` tag in the
+    container) counts as translateable — we can't tell the language
+    without ffprobe-extracting it, and the worker will detect the actual
+    language at extraction time anyway.
+    """
+    target_norm = _normalize_lang(target_lang)
+    for t in tracks:
+        if not t.is_text:
+            continue
+        track_norm = _normalize_lang(t.language)
+        if track_norm is None or track_norm != target_norm:
+            return True
+    return False
+
+
+def has_only_bitmap_tracks(tracks: list[TrackInfo]) -> bool:
+    """True iff the file has subtitle tracks but none are text-based.
+
+    Used by the worker to treat PGS/VOBSUB-only files as a terminal skip
+    (no retry) instead of a recoverable ``ValueError`` that burns three
+    retry attempts before giving up. Translarr can't translate bitmap
+    subs without OCR (planned for v1.0+).
+    """
+    return bool(tracks) and not any(t.is_text for t in tracks)

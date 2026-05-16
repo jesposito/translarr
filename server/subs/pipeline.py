@@ -12,7 +12,12 @@ from server.async_utils import fire_and_forget
 from server.config import settings
 from server.llm.router import get_provider
 from server.models import TranslateRequest, TranslateResponse
-from server.subs.extract import extract_track, list_sub_tracks, pick_source_track
+from server.subs.extract import (
+    extract_track,
+    has_only_bitmap_tracks,
+    list_sub_tracks,
+    pick_source_track,
+)
 from server.subs.reading_rate import SubEvent, adapt_events_for_cps
 
 log = structlog.get_logger()
@@ -86,6 +91,17 @@ async def translate_media(req: TranslateRequest) -> TranslateResponse:
     else:
         # Step A: try embedded subtitle tracks via ffprobe.
         tracks = await list_sub_tracks(media)
+
+        # Bitmap-only files (PGS/VOBSUB without any text track) can never
+        # be translated until Translarr ships OCR. Treat as terminal skip
+        # so the worker doesn't burn three retries on a known-unsolvable
+        # input.
+        if has_only_bitmap_tracks(tracks):
+            raise NoSourceSubtitles(
+                f"bitmap_subs_only: {media.name} has {len(tracks)} subtitle "
+                f"track(s) but they're all PGS/VOBSUB. OCR is on the v1.0+ "
+                f"roadmap; for now add a sidecar .srt or wait for a text-sub release."
+            )
 
         if tracks:
             track = pick_source_track(tracks, req.source_track_index, target_lang)
