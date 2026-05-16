@@ -3,6 +3,11 @@
 > The arr you reach for when your release has subtitles in the wrong language and nobody has authored English ones yet.
 
 [![CI](https://github.com/jesposito/translarr/actions/workflows/ci.yml/badge.svg)](https://github.com/jesposito/translarr/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)](https://python.org)
+[![AI BYO-key](https://img.shields.io/badge/AI-BYO--key%20(Claude%20·%20GPT%20·%20Ollama)-9333ea)](#)
+[![arr stack](https://img.shields.io/badge/integrates-Sonarr%20·%20Radarr%20·%20Bazarr-1abc9c)](#)
+[![Last commit](https://img.shields.io/github/last-commit/jesposito/translarr)](https://github.com/jesposito/translarr/commits/main)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 ![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)
 ![Tests](https://img.shields.io/badge/tests-210-green.svg)
