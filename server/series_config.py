@@ -105,3 +105,28 @@ def delete_series(series_id: str) -> bool:
     conn = get_conn()
     cur = conn.execute("DELETE FROM series_config WHERE id = ?", (series_id,))
     return cur.rowcount > 0
+
+
+def resolve_overrides(
+    media_path: str,
+    *,
+    explicit_target_lang: str | None,
+    explicit_source_lang: str | None,
+    explicit_glossary_id: str | None,
+    default_target_lang: str,
+) -> tuple[str, str | None, str | None, dict[str, Any] | None]:
+    """Resolve translation parameters using per-series overrides.
+
+    Explicit caller values always win. For each unset value, fall back to the
+    matching series config (if any), then to ``default_target_lang`` for the
+    target language. Returns ``(target_lang, source_lang, glossary_id, matched_series)``
+    where matched_series is the series dict that was applied, or None.
+
+    Centralises the override logic used by both /translate and
+    /translate/sync so the precedence rules can never drift apart.
+    """
+    series = lookup_by_path(media_path)
+    target_lang = explicit_target_lang or (series.get("target_lang") if series else None) or default_target_lang
+    source_lang = explicit_source_lang or (series.get("source_lang") if series else None)
+    glossary_id = explicit_glossary_id or (series.get("id") if series else None)
+    return target_lang, source_lang, glossary_id, series

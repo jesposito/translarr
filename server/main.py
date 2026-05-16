@@ -1,21 +1,38 @@
 import asyncio
 import logging
+import shutil
+import tempfile
 from contextlib import asynccontextmanager
 from pathlib import Path
 
+import httpx
 import structlog
 from fastapi import FastAPI, HTTPException, Query, Request, Response
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from server import __version__, settings_store
+from server.browse import browse_path
 from server.config import settings
 from server.cost_tracker import COST_TABLE_CENTS_PER_MTOK
+from server.glossary import delete_entry as glossary_delete_entry
+from server.glossary import delete_glossary as glossary_delete
+from server.glossary import get_glossary as glossary_get
+from server.glossary import import_entries as glossary_import_entries
+from server.glossary import list_glossaries as glossary_list
+from server.glossary import upsert_entry as glossary_upsert_entry
 from server.models import HealthResponse, TranslateRequest
 from server.queue.base import Job, JobState, compute_dedup_key
 from server.queue.sqlite import get_queue
 from server.queue.worker import start_workers
+from server.series_config import delete_series as series_delete
+from server.series_config import get_series as series_get
+from server.series_config import list_series as series_list
+from server.series_config import lookup_by_path as series_lookup_by_path
+from server.series_config import resolve_overrides
+from server.series_config import upsert_series as series_upsert
 from server.settings_store import PRESETS, REGISTRY, SettingValidationError
+from server.settings_store import apply_preset as _apply_preset
 from server.subs.extract import _normalize_lang, extract_track, list_sub_tracks, pick_source_track
 from server.subs.pipeline import (
     _load_subs_with_encoding_fallback,
@@ -115,9 +132,6 @@ async def preflight(req: TranslateRequest) -> dict:
     source_lang_display = _normalize_lang(source.language) or source.language or "unknown"
 
     # Count events by extracting and parsing (fast — no LLM).
-    import shutil
-    import tempfile
-
     workdir = Path(tempfile.mkdtemp())
     try:
         ext = ".ass" if source.codec in {"ass", "ssa"} else ".srt"
@@ -164,20 +178,14 @@ async def translate(req: TranslateRequest) -> dict:
     Dedup: in-flight or completed job with same (media_path, source_track_index, target_lang)
     returns {status:'dedup', job_id} without enqueueing.
     """
-    target_lang = req.target_lang or settings.target_lang
     media_path_str = str(req.media_path)
-
-    # Apply per-series overrides for fields the caller didn't explicitly set.
-    from server.series_config import lookup_by_path
-
-    series = lookup_by_path(media_path_str)
-    if series:
-        if not req.target_lang and series.get("target_lang"):
-            target_lang = series["target_lang"]
-        if not req.source_lang and series.get("source_lang"):
-            req.source_lang = series["source_lang"]
-        if not req.glossary_id and series.get("id"):
-            req.glossary_id = series["id"]
+    target_lang, req.source_lang, req.glossary_id, _ = resolve_overrides(
+        media_path_str,
+        explicit_target_lang=req.target_lang,
+        explicit_source_lang=req.source_lang,
+        explicit_glossary_id=req.glossary_id,
+        default_target_lang=settings.target_lang,
+    )
 
     dedup_key = compute_dedup_key(media_path_str, req.source_track_index, target_lang)
 
@@ -263,8 +271,6 @@ async def browse(path: str = "") -> dict:
     Path is relative to MEDIA_ROOT. Returns dirs and media files with
     their translation status. Used by the Web UI's Library page.
     """
-    from server.browse import browse_path
-
     return browse_path(path)
 
 
@@ -336,8 +342,7 @@ async def apply_preset(body: dict) -> dict:
     if not name:
         raise HTTPException(status_code=400, detail="missing preset name")
     try:
-        from server.settings_store import apply_preset as _apply
-        result = _apply(name)
+        result = _apply_preset(name)
     except SettingValidationError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
     # Return fresh field data for every applied key.
@@ -428,20 +433,14 @@ async def translate_sync(req: TranslateRequest) -> dict:
 
     All translations run through the queue (visible in the Web UI dashboard).
     """
-    target_lang = req.target_lang or settings.target_lang
     media_path_str = str(req.media_path)
-
-    # Apply per-series overrides (same logic as /translate).
-    from server.series_config import lookup_by_path
-
-    series = lookup_by_path(media_path_str)
-    if series:
-        if not req.target_lang and series.get("target_lang"):
-            target_lang = series["target_lang"]
-        if not req.source_lang and series.get("source_lang"):
-            req.source_lang = series["source_lang"]
-        if not req.glossary_id and series.get("id"):
-            req.glossary_id = series["id"]
+    target_lang, req.source_lang, req.glossary_id, _ = resolve_overrides(
+        media_path_str,
+        explicit_target_lang=req.target_lang,
+        explicit_source_lang=req.source_lang,
+        explicit_glossary_id=req.glossary_id,
+        default_target_lang=settings.target_lang,
+    )
 
     dedup_key = compute_dedup_key(media_path_str, req.source_track_index, target_lang)
 
@@ -512,9 +511,10 @@ async def translate_sync(req: TranslateRequest) -> dict:
     # --- Short poll: wait up to 90 s for the worker to finish ---------------
     SYNC_POLL_TIMEOUT = 90  # seconds — covers most TV episodes.
     poll_interval = 0.5
-    deadline = asyncio.get_event_loop().time() + SYNC_POLL_TIMEOUT
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + SYNC_POLL_TIMEOUT
 
-    while asyncio.get_event_loop().time() < deadline:
+    while loop.time() < deadline:
         job = q.get(job_id)
         if job is None:
             raise HTTPException(status_code=500, detail="job_lost")
@@ -554,7 +554,6 @@ async def test_ntfy() -> dict:
     """
     if not settings.ntfy_url:
         raise HTTPException(status_code=400, detail="ntfy_not_configured")
-    import httpx
     try:
         async with httpx.AsyncClient(timeout=settings.ntfy_timeout_seconds) as client:
             resp = await client.post(
@@ -607,18 +606,13 @@ async def get_output(path: str) -> Response:
 @app.get("/glossaries")
 async def list_glossaries() -> dict:
     """List all glossaries with entry counts."""
-    from server.glossary import list_glossaries as _list
-
-    return {"glossaries": _list()}
+    return {"glossaries": glossary_list()}
 
 
 @app.get("/glossaries/{glossary_id}")
 async def get_glossary(glossary_id: str) -> dict:
     """Get all entries for a glossary."""
-    from server.glossary import get_glossary as _get
-
-    entries = _get(glossary_id)
-    return {"id": glossary_id, "entries": entries}
+    return {"id": glossary_id, "entries": glossary_get(glossary_id)}
 
 
 @app.post("/glossaries/{glossary_id}")
@@ -627,13 +621,11 @@ async def upsert_glossary_entry(glossary_id: str, body: dict) -> dict:
 
     Body: {source_term, translation, target_lang?, notes?}
     """
-    from server.glossary import upsert_entry
-
     source = body.get("source_term", "").strip()
     translation = body.get("translation", "").strip()
     if not source or not translation:
         raise HTTPException(status_code=400, detail="source_term and translation required")
-    upsert_entry(
+    glossary_upsert_entry(
         glossary_id,
         source,
         translation,
@@ -646,10 +638,7 @@ async def upsert_glossary_entry(glossary_id: str, body: dict) -> dict:
 @app.delete("/glossaries/{glossary_id}/{source_term}")
 async def delete_glossary_entry(glossary_id: str, source_term: str, target_lang: str = "en") -> dict:
     """Delete a single glossary entry."""
-    from server.glossary import delete_entry
-
-    deleted = delete_entry(glossary_id, source_term, target_lang)
-    if not deleted:
+    if not glossary_delete_entry(glossary_id, source_term, target_lang):
         raise HTTPException(status_code=404, detail="entry not found")
     return {"status": "ok"}
 
@@ -657,9 +646,7 @@ async def delete_glossary_entry(glossary_id: str, source_term: str, target_lang:
 @app.delete("/glossaries/{glossary_id}")
 async def delete_glossary(glossary_id: str) -> dict:
     """Delete an entire glossary."""
-    from server.glossary import delete_glossary as _delete
-
-    count = _delete(glossary_id)
+    count = glossary_delete(glossary_id)
     return {"status": "ok", "deleted": count}
 
 
@@ -669,12 +656,12 @@ async def import_glossary(glossary_id: str, body: dict) -> dict:
 
     Body: {entries: [{source_term, translation, notes?}], target_lang?}
     """
-    from server.glossary import import_entries
-
     entries = body.get("entries", [])
     if not entries:
         raise HTTPException(status_code=400, detail="no entries provided")
-    count = import_entries(glossary_id, entries, target_lang=body.get("target_lang", "en"))
+    count = glossary_import_entries(
+        glossary_id, entries, target_lang=body.get("target_lang", "en")
+    )
     return {"status": "ok", "imported": count}
 
 
@@ -684,17 +671,13 @@ async def import_glossary(glossary_id: str, body: dict) -> dict:
 @app.get("/series")
 async def list_series() -> dict:
     """List all series configs with per-series overrides."""
-    from server.series_config import list_series as _list
-
-    return {"series": _list()}
+    return {"series": series_list()}
 
 
 @app.get("/series/lookup")
 async def lookup_series(path: str = Query(..., description="Media path to look up")) -> dict:
     """Find the series config matching a media path (longest prefix match)."""
-    from server.series_config import lookup_by_path
-
-    cfg = lookup_by_path(path)
+    cfg = series_lookup_by_path(path)
     if not cfg:
         return {"match": None}
     return {"match": cfg}
@@ -703,9 +686,7 @@ async def lookup_series(path: str = Query(..., description="Media path to look u
 @app.get("/series/{series_id}")
 async def get_series(series_id: str) -> dict:
     """Get a series config."""
-    from server.series_config import get_series as _get
-
-    cfg = _get(series_id)
+    cfg = series_get(series_id)
     if not cfg:
         raise HTTPException(status_code=404, detail="series not found")
     return cfg
@@ -717,9 +698,7 @@ async def upsert_series(series_id: str, body: dict) -> dict:
 
     Body: {source_lang?, target_lang?, llm_provider?, llm_model?, path_prefix?, auto_translate?}
     """
-    from server.series_config import upsert_series as _upsert
-
-    _upsert(
+    series_upsert(
         series_id,
         source_lang=body.get("source_lang"),
         target_lang=body.get("target_lang"),
@@ -734,10 +713,7 @@ async def upsert_series(series_id: str, body: dict) -> dict:
 @app.delete("/series/{series_id}")
 async def delete_series(series_id: str) -> dict:
     """Delete a series config."""
-    from server.series_config import delete_series as _delete
-
-    deleted = _delete(series_id)
-    if not deleted:
+    if not series_delete(series_id):
         raise HTTPException(status_code=404, detail="series not found")
     return {"status": "ok"}
 
