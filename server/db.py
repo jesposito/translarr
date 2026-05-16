@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import sqlite3
 import time
+from collections.abc import Callable
 from pathlib import Path
 
 import structlog
@@ -159,7 +160,7 @@ def _m004_series_config(conn: sqlite3.Connection) -> None:
     )
 
 
-MIGRATIONS: list[tuple[int, str, callable]] = [
+MIGRATIONS: list[tuple[int, str, Callable[[sqlite3.Connection], None]]] = [
     (1, "initial schema (jobs + daily_usage)", _m001_initial),
     (2, "app_settings (runtime config overrides)", _m002_app_settings),
     (3, "glossaries table", _m003_glossaries),

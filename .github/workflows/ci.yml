@@ -31,6 +31,9 @@ jobs:
       - name: Lint
         run: ruff check server tests
 
+      - name: Type check
+        run: mypy
+
       - name: Test
         run: pytest -x --tb=short -q
 

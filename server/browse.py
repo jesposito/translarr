@@ -45,7 +45,8 @@ def browse_path(relative_path: str = "") -> dict:
     if not target.is_dir():
         return {"error": "not a directory", "path": relative_path}
 
-    # Compute parent path.
+    # Compute parent path. None means we're at MEDIA_ROOT (no parent).
+    parent_rel: str | None
     try:
         parent_rel = str(target.parent.relative_to(root))
         if parent_rel == ".":
