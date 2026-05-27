@@ -39,6 +39,11 @@ class TranslateResponse(BaseModel):
     source_track_index: int | None = None  # Track index that was translated
     # Backwards-compat field — equals source_events for v0.1 consumers reading this name
     lines_translated: int = 0
+    # Timing-quality readout from the reading-rate adapter (TR-wzj). Headline
+    # 0-100 score + full JSON breakdown so the worker can persist both
+    # without re-computing.
+    timing_quality_score: float | None = None
+    timing_quality_json: str | None = None
 
 
 class HealthResponse(BaseModel):

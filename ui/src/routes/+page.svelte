@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
+  import TimingQualityBadge from '$lib/TimingQualityBadge.svelte';
 
   type JobState = 'queued' | 'running' | 'retrying' | 'done' | 'failed' | 'cancelled';
 
@@ -16,6 +17,7 @@
     created_at: number;
     updated_at: number;
     finished_at: number | null;
+    timing_quality_score: number | null;
   }
 
   interface Health {
@@ -357,6 +359,7 @@
             <th scope="col">State</th>
             <th scope="col">Media</th>
             <th scope="col">Lang</th>
+            <th scope="col">Quality</th>
             <th scope="col" class="num">Cost</th>
             <th scope="col">Finished</th>
           </tr>
@@ -375,6 +378,13 @@
                 </a>
               </td>
               <td class="mono">{job.target_lang}</td>
+              <td>
+                <!-- Standalone badge (no parent link names the score) so it
+                     gets its own accessible name. Score may be null for
+                     legacy rows or terminal-skip jobs ($0 done with no
+                     translation) — the badge renders nothing in that case. -->
+                <TimingQualityBadge score={job.timing_quality_score} size="compact" />
+              </td>
               <td class="num">{dollars(job.cost_cents)}</td>
               <td>
                 <time datetime={isoTime(job.finished_at)} title={isoTime(job.finished_at)}>
