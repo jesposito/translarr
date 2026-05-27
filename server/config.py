@@ -110,6 +110,20 @@ class Settings(BaseSettings):
     ntfy_on_skip: bool = False
     ntfy_timeout_seconds: int = 10
 
+    # Timing-quality gate (TR-wzj). After the reading-rate adapter runs we
+    # compute a 0-100 score comparing source-cue timings to adapted-cue
+    # timings (readability conformance + span drift + CPS distribution +
+    # boundary drift). Surface threshold for the UI badge buckets:
+    #   score >= timing_quality_badge_green  -> green
+    #   score >= timing_quality_badge_yellow -> yellow
+    #   else                                 -> red
+    # `timing_quality_fail_threshold = 0` disables the auto-fail gate
+    # (default). Set to e.g. 70 to mark jobs failed when the adapter
+    # produced an unreadable file.
+    timing_quality_fail_threshold: float = 0.0
+    timing_quality_badge_green: float = 95.0
+    timing_quality_badge_yellow: float = 80.0
+
     # Library refresh hooks — fire after a translation completes so Emby/Jellyfin
     # pick up the new .srt without a full scan. All optional; leave blank to skip.
     emby_url: str | None = None              # e.g. http://emby:8096

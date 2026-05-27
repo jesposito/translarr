@@ -42,6 +42,8 @@ def _row_to_job(row: Any) -> Job:
         created_at=row["created_at"],
         updated_at=row["updated_at"],
         finished_at=row["finished_at"],
+        timing_quality_score=row["timing_quality_score"],
+        timing_quality_json=row["timing_quality_json"],
     )
 
 
@@ -181,6 +183,8 @@ class SQLiteQueue:
         output_events: int,
         source_lang: str | None = None,
         source_track_index: int | None = None,
+        timing_quality_score: float | None = None,
+        timing_quality_json: str | None = None,
     ) -> None:
         conn = get_conn()
         now = _now()
@@ -199,10 +203,15 @@ class SQLiteQueue:
             """
             UPDATE jobs SET
                 state='done', output_path=?, cost_cents=?, tokens_in=?,
-                tokens_out=?, finished_at=?, updated_at=?
+                tokens_out=?, timing_quality_score=?, timing_quality_json=?,
+                finished_at=?, updated_at=?
             WHERE id=?
             """,
-            (output_path, cost_cents, tokens_in, tokens_out, now, now, job_id),
+            (
+                output_path, cost_cents, tokens_in, tokens_out,
+                timing_quality_score, timing_quality_json,
+                now, now, job_id,
+            ),
         )
 
     def mark_failed(self, job_id: str, error: str) -> None:

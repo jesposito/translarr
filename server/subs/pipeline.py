@@ -1,4 +1,5 @@
 import asyncio
+import json
 import time
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -18,6 +19,7 @@ from server.subs.extract import (
     list_sub_tracks,
     pick_source_track,
 )
+from server.subs.quality import QualityGateFailed, bucket_badge, compute_quality
 from server.subs.reading_rate import SubEvent, adapt_events_for_cps
 
 log = structlog.get_logger()
@@ -211,7 +213,26 @@ async def translate_media(req: TranslateRequest) -> TranslateResponse:
     # global reading_rate_cps is the fallback for languages not in the
     # override map.
     cps = settings.reading_rate_cps_by_lang.get(target_lang, settings.reading_rate_cps)
-    adapted = adapt_events_for_cps(events, max_cps=cps)
+    # Keep an immutable snapshot of pre-adapt events for the quality check
+    # below. adapt_events_for_cps is documented pure but we copy defensively.
+    pre_adapt = list(events)
+    adapted = adapt_events_for_cps(pre_adapt, max_cps=cps)
+
+    # Timing-quality readout (TR-wzj). Re-bucket badge in case the user
+    # overrode the badge thresholds via settings.
+    quality = compute_quality(pre_adapt, adapted, max_cps=cps)
+    quality_dict = quality.to_dict()
+    quality_dict["badge"] = bucket_badge(
+        quality.score,
+        green_threshold=settings.timing_quality_badge_green,
+        yellow_threshold=settings.timing_quality_badge_yellow,
+    )
+    log.info("reading_rate_quality", **quality_dict)
+    if (
+        settings.timing_quality_fail_threshold > 0
+        and quality.score < settings.timing_quality_fail_threshold
+    ):
+        raise QualityGateFailed(quality, settings.timing_quality_fail_threshold)
 
     out_subs = pysubs2.SSAFile()
     for ev in adapted:
@@ -251,6 +272,8 @@ async def translate_media(req: TranslateRequest) -> TranslateResponse:
         tokens_out=tokens_out_total,
         source_lang=source_lang,
         source_track_index=detected_track_index,
+        timing_quality_score=quality.score,
+        timing_quality_json=json.dumps(quality_dict),
     )
 
 
