@@ -2,8 +2,27 @@
   import { onMount, onDestroy } from 'svelte';
   import { page } from '$app/stores';
   import { goto } from '$app/navigation';
+  import TimingQualityBadge from '$lib/TimingQualityBadge.svelte';
 
   type JobState = 'queued' | 'running' | 'retrying' | 'done' | 'failed' | 'cancelled';
+
+  interface TimingQuality {
+    score: number;
+    badge: 'green' | 'yellow' | 'red';
+    conformance_pct: number;
+    overrun_count: number;
+    max_cps_observed: number;
+    span_drift_max_ms: number;
+    span_drift_mean_ms: number;
+    cps_p50: number;
+    cps_p95: number;
+    cps_p99: number;
+    boundary_drift_max_ms: number;
+    boundary_drift_mean_ms: number;
+    source_event_count: number;
+    adapted_event_count: number;
+    max_cps_target: number;
+  }
 
   interface Job {
     id: string;
@@ -20,6 +39,7 @@
     created_at: number;
     updated_at: number;
     finished_at: number | null;
+    timing_quality: TimingQuality | null;
   }
 
   interface Health {
@@ -43,6 +63,9 @@
   // ONLY when the state actually transitions (queued -> running -> done).
   let stateAnnouncement = $state('');
   let prevState = $state<JobState | null>(null);
+  // Quality breakdown disclosure — bound to a $state var so polling
+  // re-renders don't collapse it. accessibility-lead spec.
+  let breakdownOpen = $state(false);
 
   const jobId = $derived($page.params.id);
   const shortId = $derived(jobId ? jobId.slice(0, 8) : '');
@@ -95,6 +118,16 @@
         let msg = `Job ${shortId} is ${verb}.`;
         if (next.state === 'failed' && next.error) {
           msg += ` Error: ${next.error.slice(0, 160)}`;
+        }
+        // Fold the timing-quality score into the completion announcement
+        // so SR users hear the verdict + quality readout in one breath
+        // (accessibility-lead spec). Score is set when the job finishes,
+        // so it's stable by the time this transition fires.
+        if (next.state === 'done' && next.timing_quality) {
+          const q = next.timing_quality;
+          const label = q.badge === 'green' ? 'good'
+            : q.badge === 'yellow' ? 'marginal' : 'poor';
+          msg += ` Timing quality ${Math.round(q.score)}, ${label}.`;
         }
         stateAnnouncement = msg;
       }
@@ -323,8 +356,73 @@
         in <span class="mono">{job.tokens_in.toLocaleString()}</span>
         · out <span class="mono">{job.tokens_out.toLocaleString()}</span>
       </dd>
+
+      {#if job.timing_quality}
+        <dt>Timing quality</dt>
+        <dd>
+          <TimingQualityBadge
+            score={job.timing_quality.score}
+            badge={job.timing_quality.badge}
+          />
+        </dd>
+      {/if}
     </dl>
   </section>
+
+  {#if job.timing_quality}
+    <section class="card" aria-labelledby="quality-heading">
+      <h2 id="quality-heading" class="sr-only">Timing quality breakdown</h2>
+      <!-- Native <details> conveys expanded/collapsed state to AT without
+           any ARIA. bind:open survives polling re-renders. -->
+      <details bind:open={breakdownOpen}>
+        <summary class="breakdown-summary">
+          <span>Quality breakdown</span>
+          <span class="muted small">
+            ({job.timing_quality.source_event_count} source events →
+            {job.timing_quality.adapted_event_count} adapted,
+            target {job.timing_quality.max_cps_target} cps)
+          </span>
+        </summary>
+        <dl class="kv breakdown">
+          <dt>Readability conformance</dt>
+          <dd>
+            <span class="num">{job.timing_quality.conformance_pct.toFixed(1)}%</span>
+            <span class="muted small">
+              ({job.timing_quality.overrun_count} of
+              {job.timing_quality.adapted_event_count} events over
+              {job.timing_quality.max_cps_target} cps)
+            </span>
+          </dd>
+
+          <dt>Worst observed CPS</dt>
+          <dd>
+            <span class="num">{job.timing_quality.max_cps_observed.toFixed(1)}</span>
+            <span class="muted small">cps</span>
+          </dd>
+
+          <dt>CPS distribution</dt>
+          <dd>
+            p50 <span class="num">{job.timing_quality.cps_p50.toFixed(1)}</span>
+            · p95 <span class="num">{job.timing_quality.cps_p95.toFixed(1)}</span>
+            · p99 <span class="num">{job.timing_quality.cps_p99.toFixed(1)}</span>
+          </dd>
+
+          <dt>Source-span drift</dt>
+          <dd>
+            max <span class="num">{job.timing_quality.span_drift_max_ms}</span>ms
+            · mean <span class="num">{job.timing_quality.span_drift_mean_ms.toFixed(1)}</span>ms
+            <span class="muted small">(should be 0 — regression guard)</span>
+          </dd>
+
+          <dt>Boundary drift</dt>
+          <dd>
+            max <span class="num">{job.timing_quality.boundary_drift_max_ms}</span>ms
+            · mean <span class="num">{job.timing_quality.boundary_drift_mean_ms.toFixed(1)}</span>ms
+          </dd>
+        </dl>
+      </details>
+    </section>
+  {/if}
 
   {#if job.state === 'done' && job.output_path}
     <section class="card output-card" aria-labelledby="output-heading">
@@ -560,5 +658,37 @@
   @keyframes slide-in {
     from { transform: translateY(8px); opacity: 0; }
     to   { transform: translateY(0);   opacity: 1; }
+  }
+
+  /* Quality breakdown disclosure. Native <details>; the summary becomes
+     the touch target. Min-height 44px per quillr-mobile-equal-citizen. */
+  .breakdown-summary {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    min-height: 44px;
+    padding: var(--space-2) 0;
+    cursor: pointer;
+    font-weight: 500;
+    flex-wrap: wrap;
+  }
+  /* Chevron indicator. Decorative pseudo-element, no aria needed.
+     Reduced motion handled globally by the prefers-reduced-motion
+     block in tokens.css. */
+  .breakdown-summary::before {
+    content: "▸";
+    display: inline-block;
+    width: 1em;
+    transition: transform var(--dur) var(--ease);
+  }
+  details[open] > .breakdown-summary::before {
+    transform: rotate(90deg);
+  }
+  .breakdown {
+    margin-top: var(--space-3);
+  }
+  .breakdown .num {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
   }
 </style>
