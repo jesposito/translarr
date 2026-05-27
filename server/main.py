@@ -1,4 +1,5 @@
 import asyncio
+import json
 import logging
 import shutil
 import tempfile
@@ -260,6 +261,7 @@ async def list_jobs(
                 "created_at": j.created_at,
                 "updated_at": j.updated_at,
                 "finished_at": j.finished_at,
+                "timing_quality_score": j.timing_quality_score,
             }
             for j in jobs
         ],
@@ -399,6 +401,14 @@ async def get_job(job_id: str) -> dict:
     job = get_queue().get(job_id)
     if not job:
         raise HTTPException(status_code=404, detail="job_not_found")
+    timing_quality: dict | None = None
+    if job.timing_quality_json:
+        try:
+            timing_quality = json.loads(job.timing_quality_json)
+        except (ValueError, TypeError):
+            timing_quality = None
+    elif job.timing_quality_score is not None:
+        timing_quality = {"score": job.timing_quality_score}
     return {
         "id": job.id,
         "state": job.state.value,
@@ -416,6 +426,7 @@ async def get_job(job_id: str) -> dict:
         "created_at": job.created_at,
         "updated_at": job.updated_at,
         "finished_at": job.finished_at,
+        "timing_quality": timing_quality,
     }
 
 

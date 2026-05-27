@@ -45,6 +45,10 @@ class Job:
     created_at: int = 0
     updated_at: int = 0
     finished_at: int | None = None
+    # Timing-quality readout from the reading-rate adapter (TR-wzj). Populated
+    # by the worker via Queue.finish; both nullable so legacy rows stay valid.
+    timing_quality_score: float | None = None
+    timing_quality_json: str | None = None
 
 
 def compute_dedup_key(media_path: str, source_track_index: int | None, target_lang: str) -> str:
@@ -97,6 +101,8 @@ class Queue(Protocol):
         tokens_in: int,
         tokens_out: int,
         output_events: int,
+        timing_quality_score: float | None = None,
+        timing_quality_json: str | None = None,
     ) -> None: ...
 
     def mark_failed(self, job_id: str, error: str) -> None: ...

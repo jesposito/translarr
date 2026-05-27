@@ -196,11 +196,24 @@ def _m004_series_config(conn: sqlite3.Connection) -> None:
     )
 
 
+def _m005_timing_quality(conn: sqlite3.Connection) -> None:
+    """Per-job timing-quality readout for the reading-rate adapter (TR-wzj).
+
+    Two columns: a headline score for cheap filtering/sorting + the full
+    component breakdown as JSON for the UI to render without a second
+    round-trip. Both nullable so legacy rows (translated before this
+    migration) stay valid.
+    """
+    conn.execute("ALTER TABLE jobs ADD COLUMN timing_quality_score REAL")
+    conn.execute("ALTER TABLE jobs ADD COLUMN timing_quality_json TEXT")
+
+
 MIGRATIONS: list[tuple[int, str, Callable[[sqlite3.Connection], None]]] = [
     (1, "initial schema (jobs + daily_usage)", _m001_initial),
     (2, "app_settings (runtime config overrides)", _m002_app_settings),
     (3, "glossaries table", _m003_glossaries),
     (4, "series_config table (per-series overrides)", _m004_series_config),
+    (5, "timing_quality columns on jobs", _m005_timing_quality),
 ]
 
 

@@ -112,6 +112,8 @@ async def _run_job(job: Job) -> None:
             output_events=result.output_events,
             source_lang=result.source_lang or None,
             source_track_index=result.source_track_index,
+            timing_quality_score=result.timing_quality_score,
+            timing_quality_json=result.timing_quality_json,
         )
         log.info("job_done", job_id=job.id, output=str(result.output_path))
         notifications.notify_success(
