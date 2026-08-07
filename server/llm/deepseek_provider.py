@@ -47,6 +47,7 @@ class DeepSeekProvider:
                 {"role": "system", "content": system},
                 {"role": "user", "content": user_text},
             ],
+            extra_body={"thinking": {"type": "disabled"}},
         )
         raw = resp.choices[0].message.content or ""
         return reconcile_lines(raw.split("\n"), len(lines))
