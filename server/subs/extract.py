@@ -3,6 +3,8 @@ import json
 import shutil
 from pathlib import Path
 
+from server.config import settings
+
 # Per-subprocess timeouts. The pipeline already has a top-level
 # `JOB_TIMEOUT_SECONDS` (default 30 min) for the whole translation, but
 # letting ffprobe/ffmpeg hang for that long ties up a worker on a single
@@ -10,8 +12,8 @@ from pathlib import Path
 # fail fast, surface a clear error, and move on. Raise the values if
 # you regularly translate multi-hour 4K HDR releases with embedded
 # Dolby Vision sub tracks — those can be legitimately slow to probe.
-FFPROBE_TIMEOUT_SECONDS = 30.0
-FFMPEG_EXTRACT_TIMEOUT_SECONDS = 120.0
+FFPROBE_TIMEOUT_SECONDS = settings.ffprobe_timeout_seconds
+FFMPEG_EXTRACT_TIMEOUT_SECONDS = settings.ffmpeg_extract_timeout_seconds
 
 
 # Text-based subtitle codecs that ffmpeg can extract to SRT/ASS.
@@ -112,9 +114,19 @@ async def list_sub_tracks(media_path: Path) -> list[TrackInfo]:
 
 
 async def extract_track(media_path: Path, track_index: int, output_path: Path) -> Path:
-    """Extract a single subtitle track to .srt or .ass on disk."""
+    """Extract a single subtitle track to .srt or .ass on disk.
+
+    Idempotent: if ``output_path`` already exists and is non-empty we
+    return it immediately instead of re-running ffmpeg. Retries and
+    re-submissions of the same job land on the same workdir, so skipping
+    a completed extraction avoids burning another 60-120s of IO per
+    attempt for no reason.
+    """
     if not shutil.which("ffmpeg"):
         raise RuntimeError("ffmpeg not found on PATH")
+
+    if output_path.is_file() and output_path.stat().st_size > 0:
+        return output_path
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     proc = await asyncio.create_subprocess_exec(

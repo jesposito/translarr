@@ -53,6 +53,13 @@ class Settings(BaseSettings):
     max_cost_cents_per_job: int = 500
     job_timeout_seconds: int = 1800
 
+    # Subtitle extraction subprocess timeouts (seconds). ffprobe/ffmpeg
+    # against large or thickly-muxed files can be slow; make both
+    # configurable so deployments can raise them without patching code.
+    # Example: FFMPEG_EXTRACT_TIMEOUT_SECONDS=300
+    ffprobe_timeout_seconds: float = 30.0
+    ffmpeg_extract_timeout_seconds: float = 120.0
+
     radarr_translate_tag: str = "radarr_translate"
     sonarr_translate_tag: str = "sonarr_translate"
 
