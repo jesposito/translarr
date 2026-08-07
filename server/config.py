@@ -16,6 +16,12 @@ class Settings(BaseSettings):
     gemini_api_key: str | None = None
     ollama_host: str = "http://ollama:11434"
 
+    # Requests to Ollama can stretch well past the default httpx timeout
+    # when the model or box is contended. Make it configurable (seconds)
+    # without changing the upstream default behavior.
+    # Example: OLLAMA_REQUEST_TIMEOUT_SECONDS=600
+    ollama_request_timeout_seconds: float = 120.0
+
     media_root: Path = Path("/media")
 
     target_lang: str = "en"
