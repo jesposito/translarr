@@ -151,6 +151,7 @@ All config via env vars, `.env`, or the Settings page in the Web UI. Settings ch
 | `DEEPSEEK_API_KEY` | | Required for `deepseek` |
 | `GEMINI_API_KEY` | | Required for `gemini` |
 | `OLLAMA_HOST` | `http://ollama:11434` | Required for `ollama` |
+| `OLLAMA_REQUEST_TIMEOUT_SECONDS` | `120` | Per-batch Ollama request timeout; raise for slow or CPU-only hosts |
 | `MEDIA_ROOT` | `/media` | Where the volume is mounted inside the container |
 | `TRANSLARR_DATA_DIR` | `./data` | SQLite DB lives here |
 | `TARGET_LANG` | `en` | ISO 639-1 target language |

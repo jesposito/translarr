@@ -1,6 +1,7 @@
 from pathlib import Path
 from typing import Literal
 
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -20,7 +21,11 @@ class Settings(BaseSettings):
     # when the model or box is contended. Make it configurable (seconds)
     # without changing the upstream default behavior.
     # Example: OLLAMA_REQUEST_TIMEOUT_SECONDS=600
-    ollama_request_timeout_seconds: float = 120.0
+    ollama_request_timeout_seconds: float = Field(
+        default=120.0,
+        gt=0,
+        allow_inf_nan=False,
+    )
 
     media_root: Path = Path("/media")
 
