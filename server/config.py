@@ -1,6 +1,7 @@
 from pathlib import Path
 from typing import Literal
 
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -15,6 +16,16 @@ class Settings(BaseSettings):
     deepseek_api_key: str | None = None
     gemini_api_key: str | None = None
     ollama_host: str = "http://ollama:11434"
+
+    # Requests to Ollama can stretch well past the default httpx timeout
+    # when the model or box is contended. Make it configurable (seconds)
+    # without changing the upstream default behavior.
+    # Example: OLLAMA_REQUEST_TIMEOUT_SECONDS=600
+    ollama_request_timeout_seconds: float = Field(
+        default=120.0,
+        gt=0,
+        allow_inf_nan=False,
+    )
 
     media_root: Path = Path("/media")
 
