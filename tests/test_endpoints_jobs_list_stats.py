@@ -185,7 +185,8 @@ def test_config_returns_expected_keys(client):
     assert "version" in body
     fields = _fields_by_key(body)
     expected = {
-        "llm_provider", "llm_model", "target_lang", "reading_rate_cps",
+        "llm_provider", "llm_model", "ollama_request_timeout_seconds",
+        "target_lang", "reading_rate_cps",
         "max_concurrent", "context_window_lines", "max_cost_cents_per_day",
         "max_cost_cents_per_job", "job_timeout_seconds",
         "radarr_translate_tag", "sonarr_translate_tag", "webhook_secret",

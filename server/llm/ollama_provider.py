@@ -30,7 +30,7 @@ class OllamaProvider:
         )
         user_text = build_user_message(lines, prior_context, glossary)
 
-        async with httpx.AsyncClient(timeout=120.0) as client:
+        async with httpx.AsyncClient(timeout=settings.ollama_request_timeout_seconds) as client:
             resp = await client.post(
                 f"{self.host}/api/chat",
                 json={
