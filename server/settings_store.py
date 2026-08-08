@@ -142,6 +142,26 @@ REGISTRY: dict[str, SettingMeta] = {
         default_label="10",
         hint="Higher = better continuity, more tokens spent per line. 10 is a good balance.",
     ),
+    "ffprobe_timeout_seconds": SettingMeta(
+        key="ffprobe_timeout_seconds",
+        type="float",
+        section="translation",
+        description="Maximum seconds to wait while inspecting subtitle tracks with ffprobe.",
+        min=1,
+        max=86_400,
+        default_label="30 seconds",
+        hint="Raise this for unusually large or slow network-mounted media.",
+    ),
+    "ffmpeg_extract_timeout_seconds": SettingMeta(
+        key="ffmpeg_extract_timeout_seconds",
+        type="float",
+        section="translation",
+        description="Maximum seconds to wait while extracting one subtitle track with ffmpeg.",
+        min=1,
+        max=86_400,
+        default_label="120 seconds",
+        hint="Raise this for large or thickly-muxed files. Completed extractions are reused safely.",
+    ),
     # === Cost guards ===
     "max_cost_cents_per_day": SettingMeta(
         key="max_cost_cents_per_day",

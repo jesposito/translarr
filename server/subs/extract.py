@@ -3,16 +3,7 @@ import json
 import shutil
 from pathlib import Path
 
-# Per-subprocess timeouts. The pipeline already has a top-level
-# `JOB_TIMEOUT_SECONDS` (default 30 min) for the whole translation, but
-# letting ffprobe/ffmpeg hang for that long ties up a worker on a single
-# bad file. These bounds catch wedged decodes early so the worker can
-# fail fast, surface a clear error, and move on. Raise the values if
-# you regularly translate multi-hour 4K HDR releases with embedded
-# Dolby Vision sub tracks — those can be legitimately slow to probe.
-FFPROBE_TIMEOUT_SECONDS = 30.0
-FFMPEG_EXTRACT_TIMEOUT_SECONDS = 120.0
-
+from server.config import settings
 
 # Text-based subtitle codecs that ffmpeg can extract to SRT/ASS.
 # Bitmap formats (PGS, VOBSUB, DVDSUB) require OCR and are not supported.
@@ -83,15 +74,16 @@ async def list_sub_tracks(media_path: Path) -> list[TrackInfo]:
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
+    timeout = settings.ffprobe_timeout_seconds
     try:
         stdout, stderr = await asyncio.wait_for(
-            proc.communicate(), timeout=FFPROBE_TIMEOUT_SECONDS
+            proc.communicate(), timeout=timeout
         )
     except TimeoutError as e:
         proc.kill()
         await proc.wait()
         raise TimeoutError(
-            f"ffprobe timed out after {FFPROBE_TIMEOUT_SECONDS:.0f}s on {media_path.name}"
+            f"ffprobe timed out after {timeout:.0f}s on {media_path.name}"
         ) from e
     if proc.returncode != 0:
         raise RuntimeError(f"ffprobe failed: {stderr.decode(errors='replace')}")
@@ -112,34 +104,57 @@ async def list_sub_tracks(media_path: Path) -> list[TrackInfo]:
 
 
 async def extract_track(media_path: Path, track_index: int, output_path: Path) -> Path:
-    """Extract a single subtitle track to .srt or .ass on disk."""
+    """Extract a single subtitle track to .srt or .ass on disk.
+
+    Idempotent: if ``output_path`` already exists and is non-empty we
+    return it immediately instead of re-running ffmpeg. Retries and
+    re-submissions of the same job land on the same workdir, so skipping
+    a completed extraction avoids burning another 60-120s of IO per
+    attempt for no reason.
+    """
+    if output_path.is_file() and output_path.stat().st_size > 0:
+        return output_path
+
     if not shutil.which("ffmpeg"):
         raise RuntimeError("ffmpeg not found on PATH")
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
+    # ffmpeg writes subtitle files incrementally. A timeout, non-zero exit,
+    # or process crash can therefore leave a non-empty but truncated file.
+    # Write to a sibling partial path and publish with an atomic replace only
+    # after ffmpeg succeeds, so the idempotent fast path above never trusts a
+    # half-finished extraction.
+    partial_path = output_path.with_name(
+        f".{output_path.stem}.part{output_path.suffix}"
+    )
+    partial_path.unlink(missing_ok=True)
     proc = await asyncio.create_subprocess_exec(
         "ffmpeg",
         "-y",
         "-i", str(media_path),
         "-map", f"0:{track_index}",
         "-c:s", "copy",
-        str(output_path),
+        str(partial_path),
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
+    timeout = settings.ffmpeg_extract_timeout_seconds
     try:
         _, stderr = await asyncio.wait_for(
-            proc.communicate(), timeout=FFMPEG_EXTRACT_TIMEOUT_SECONDS
+            proc.communicate(), timeout=timeout
         )
     except TimeoutError as e:
         proc.kill()
         await proc.wait()
+        partial_path.unlink(missing_ok=True)
         raise TimeoutError(
-            f"ffmpeg extract timed out after {FFMPEG_EXTRACT_TIMEOUT_SECONDS:.0f}s "
+            f"ffmpeg extract timed out after {timeout:.0f}s "
             f"on {media_path.name}:track{track_index}"
         ) from e
     if proc.returncode != 0:
+        partial_path.unlink(missing_ok=True)
         raise RuntimeError(f"ffmpeg extract failed: {stderr.decode(errors='replace')}")
+    partial_path.replace(output_path)
     return output_path
 
 
