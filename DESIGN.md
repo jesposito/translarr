@@ -65,6 +65,16 @@ Single warm accent. Amber (`#f59e0b`) — close enough to the arr-stack vernacul
 
 Color is **never** the only signal. Status pills carry text labels alongside their color.
 
+### Unicorn mode (explicit opt-in)
+
+Unicorn mode is a persistent, browser-local alternate skin reached from the primary
+navigation. It keeps every layout, control, semantic state, and accessibility rule
+unchanged while swapping the atmosphere to deep plum surfaces with fuchsia and teal
+accents. Ambient gradients are allowed only behind the page canvas in this mode; they
+must never reduce contrast, carry meaning, or appear in standard mode. Motion remains
+subtle and still obeys `prefers-reduced-motion`. The mode is a moment of personality,
+not a second product or a reason to hide operational information.
+
 ## 3. Typography
 
 System font stack. No webfonts — saves a network round trip and ~100KB, and renders pixel-perfect on the platforms our self-hosters actually use (macOS, Linux desktops, Unraid web UIs viewed from phones).

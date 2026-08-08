@@ -8,6 +8,26 @@
 
   let navOpen = $state(false);
   let isMobile = $state(false);
+  let unicornMode = $state(false);
+  let modeAnnouncement = $state('');
+
+  const THEME_KEY = 'translarr.uiTheme.v1';
+
+  function applyTheme(enabled: boolean): void {
+    unicornMode = enabled;
+    document.documentElement.dataset.theme = enabled ? 'unicorn' : 'standard';
+  }
+
+  function toggleUnicornMode(): void {
+    const next = !unicornMode;
+    applyTheme(next);
+    try {
+      localStorage.setItem(THEME_KEY, next ? 'unicorn' : 'standard');
+    } catch {
+      // Storage can be unavailable in private browsing; the in-page toggle still works.
+    }
+    modeAnnouncement = next ? 'Unicorn mode enabled.' : 'Unicorn mode disabled.';
+  }
 
   function isActive(href: string, current: string): boolean {
     if (href === '/') return current === '/';
@@ -26,6 +46,11 @@
   // Track viewport for mobile-only behaviors (inert nav when closed,
   // outside-click dismiss). Single matchMedia listener — no resize spam.
   onMount(() => {
+    try {
+      applyTheme(localStorage.getItem(THEME_KEY) === 'unicorn');
+    } catch {
+      applyTheme(false);
+    }
     const mq = window.matchMedia('(max-width: 768px)');
     isMobile = mq.matches;
     const handler = (e: MediaQueryListEvent) => (isMobile = e.matches);
@@ -71,7 +96,15 @@
 
 <div class="shell">
   <header class="topbar" aria-label="Mobile site header">
-    <a href="/" class="brand">Translarr</a>
+    <a href="/" class="brand">
+      <span class="brand-mark" aria-hidden="true">
+        <svg viewBox="0 0 32 32" focusable="false">
+          <path d="M6.5 7.5h19v13h-9l-5.5 4v-4H6.5z" />
+          <path d="M11 12h10M11 16h7" />
+        </svg>
+      </span>
+      <span>Translarr</span>
+    </a>
     <button
       type="button"
       class="hamburger"
@@ -93,7 +126,16 @@
     inert={isMobile && !navOpen ? true : undefined}
   >
     <div class="brand-block">
-      <span class="brand">Translarr</span>
+      <a href="/" class="brand">
+        <span class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 32 32" focusable="false">
+            <path d="M6.5 7.5h19v13h-9l-5.5 4v-4H6.5z" />
+            <path d="M11 12h10M11 16h7" />
+          </svg>
+        </span>
+        <span>Translarr</span>
+      </a>
+      <span class="brand-meta">Subtitle operations</span>
     </div>
     <ul>
       <li>
@@ -127,12 +169,31 @@
         >Glossary</a>
       </li>
     </ul>
+    <div class="nav-footer">
+      <button
+        type="button"
+        class="mode-toggle"
+        aria-pressed={unicornMode}
+        onclick={toggleUnicornMode}
+      >
+        <span class="mode-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" focusable="false">
+            <path d="m12 3 1.6 5.4L19 10l-5.4 1.6L12 17l-1.6-5.4L5 10l5.4-1.6z" />
+            <path d="M18.5 15.5 19 18l2.5.5L19 19l-.5 2.5L18 19l-2.5-.5L18 18z" />
+          </svg>
+        </span>
+        <span>{unicornMode ? 'Unicorn mode on' : 'Unicorn mode'}</span>
+      </button>
+      <p>A little extra magic. Saved on this browser.</p>
+    </div>
   </nav>
 
   <main id="main" tabindex="-1">
     {@render children()}
   </main>
 </div>
+
+<div class="sr-only" role="status" aria-live="polite">{modeAnnouncement}</div>
 
 <style>
   .shell {
@@ -141,6 +202,7 @@
     min-height: 100vh;
     /* M2: use dynamic viewport on mobile (URL bar collapse) */
     min-height: 100dvh;
+    isolation: isolate;
   }
 
   .topbar {
@@ -148,7 +210,7 @@
   }
 
   .sidenav {
-    background: var(--bg-elevated);
+    background: var(--bg-nav);
     border-right: 1px solid var(--border);
     padding: var(--space-5) var(--space-4);
     position: sticky;
@@ -156,6 +218,8 @@
     height: 100vh;
     height: 100dvh;
     overflow-y: auto;
+    display: flex;
+    flex-direction: column;
   }
 
   .brand-block {
@@ -165,11 +229,38 @@
   }
 
   .brand {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
     font-size: var(--text-lg);
     font-weight: 600;
     letter-spacing: -0.01em;
     color: var(--text);
     text-decoration: none;
+  }
+
+  .brand-mark {
+    width: 28px;
+    height: 28px;
+    display: inline-grid;
+    place-items: center;
+    color: var(--accent);
+    flex: 0 0 auto;
+  }
+  .brand-mark svg {
+    width: 100%;
+    height: 100%;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.8;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+  .brand-meta {
+    display: block;
+    margin: var(--space-1) 0 0 36px;
+    color: var(--text-dim);
+    font-size: var(--text-xs);
   }
 
   .sidenav ul {
@@ -179,6 +270,64 @@
     display: flex;
     flex-direction: column;
     gap: var(--space-1);
+  }
+
+  .nav-footer {
+    margin-top: auto;
+    padding-top: var(--space-5);
+    border-top: 1px solid var(--border);
+  }
+  .nav-footer p {
+    margin: var(--space-2) var(--space-2) 0;
+    color: var(--text-dim);
+    font-size: var(--text-xs);
+    line-height: 1.4;
+  }
+  .mode-toggle {
+    width: 100%;
+    min-height: 44px;
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-2) var(--space-3);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--text-muted);
+    font-size: var(--text-sm);
+    font-weight: 500;
+    transition:
+      background var(--dur) var(--ease),
+      border-color var(--dur) var(--ease),
+      color var(--dur) var(--ease);
+  }
+  .mode-toggle:hover {
+    background: var(--bg-elevated-hover);
+    color: var(--text);
+  }
+  .mode-toggle[aria-pressed="true"] {
+    border-color: var(--accent);
+    color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 10%, transparent);
+  }
+  .mode-icon {
+    width: 20px;
+    height: 20px;
+    display: inline-grid;
+    place-items: center;
+  }
+  .mode-icon svg {
+    width: 100%;
+    height: 100%;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.6;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+  :global(html[data-theme="unicorn"]) .brand-mark,
+  :global(html[data-theme="unicorn"]) .mode-icon {
+    filter: drop-shadow(0 4px 8px rgb(240 171 252 / 0.28));
   }
 
   .sidenav a {
@@ -227,7 +376,7 @@
       padding: var(--space-3) var(--space-4);
       /* M6: clear iOS notch */
       padding-top: max(var(--space-3), env(safe-area-inset-top));
-      background: var(--bg-elevated);
+      background: var(--bg-nav);
       border-bottom: 1px solid var(--border);
       position: sticky;
       top: 0;
@@ -264,6 +413,8 @@
       border-bottom: 1px solid var(--border);
     }
     .sidenav.open { transform: translateY(0); }
+    .nav-footer { margin-top: var(--space-5); }
+    .nav-footer p { display: none; }
     main { padding: var(--space-4); }
   }
 </style>

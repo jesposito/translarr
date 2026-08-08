@@ -886,7 +886,6 @@
   }
   .indicator.ok { background: var(--success); }
   .indicator.bad { background: var(--error); }
-  .indicator.warn { background: var(--warn); }
   .indicator.pending { background: var(--text-dim); }
 
   .version-pill {
