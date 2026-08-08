@@ -24,6 +24,7 @@ of private fields).
 from __future__ import annotations
 
 import json
+import math
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -102,6 +103,16 @@ REGISTRY: dict[str, SettingMeta] = {
         description="Specific model identifier from the chosen provider.",
         mutable=True,
         hint="Takes effect on the next job. e.g. claude-sonnet-4-6, gpt-4o-mini, qwen3:14b.",
+    ),
+    "ollama_request_timeout_seconds": SettingMeta(
+        key="ollama_request_timeout_seconds",
+        type="float",
+        section="llm",
+        description="Maximum seconds to wait for one Ollama translation request.",
+        min=1,
+        max=86_400,
+        default_label="120 seconds",
+        hint="Raise this for slow or CPU-only Ollama hosts. Takes effect on the next batch.",
     ),
     # === Translation defaults ===
     "target_lang": SettingMeta(
@@ -451,6 +462,16 @@ def _coerce_and_validate(meta: SettingMeta, raw: Any) -> Any:
             v = float(raw)
         except (TypeError, ValueError) as e:
             raise SettingValidationError(f"{meta.key}: expected float, got {raw!r}") from e
+        if not math.isfinite(v):
+            raise SettingValidationError(f"{meta.key}: expected a finite number")
+        if meta.min is not None and v < meta.min:
+            raise SettingValidationError(
+                f"{meta.key}: {v} below minimum {meta.min}"
+            )
+        if meta.max is not None and v > meta.max:
+            raise SettingValidationError(
+                f"{meta.key}: {v} above maximum {meta.max}"
+            )
     elif meta.type == "bool":
         if isinstance(raw, bool):
             v = raw
