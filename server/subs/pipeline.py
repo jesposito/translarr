@@ -1,4 +1,5 @@
 import asyncio
+import hashlib
 import json
 import time
 from dataclasses import dataclass
@@ -66,6 +67,22 @@ def _backup_existing(path: Path) -> Path:
     return backup
 
 
+def _extraction_workdir(media: Path) -> Path:
+    """Return a stable cache directory for this exact media revision.
+
+    Media stems are not unique across a library, and a release can be
+    replaced in place while keeping the same filename. Include the resolved
+    path plus cheap file identity metadata so retries share completed work,
+    while different files and revised media cannot reuse stale subtitles.
+    """
+    stat = media.stat()
+    identity = (
+        f"{media.resolve()}\0{stat.st_size}\0{stat.st_mtime_ns}"
+    ).encode()
+    key = hashlib.sha256(identity).hexdigest()[:12]
+    return settings.media_root / ".translarr" / f"{media.stem}-{key}"
+
+
 async def translate_media(req: TranslateRequest) -> TranslateResponse:
     media = settings.media_root / req.media_path if not req.media_path.is_absolute() else req.media_path
     if not media.exists():
@@ -111,7 +128,7 @@ async def translate_media(req: TranslateRequest) -> TranslateResponse:
             detected_track_index = track.index
             log.info("picked_track", index=track.index, codec=track.codec, lang=source_lang)
 
-            workdir = settings.media_root / ".translarr" / media.stem
+            workdir = _extraction_workdir(media)
             workdir.mkdir(parents=True, exist_ok=True)
             ext = ".ass" if track.codec in {"ass", "ssa"} else ".srt"
             raw_path = workdir / f"source.{track.index}{ext}"
