@@ -186,7 +186,8 @@ def test_config_returns_expected_keys(client):
     fields = _fields_by_key(body)
     expected = {
         "llm_provider", "llm_model", "ollama_request_timeout_seconds",
-        "target_lang", "reading_rate_cps",
+        "target_lang", "reading_rate_cps", "ffprobe_timeout_seconds",
+        "ffmpeg_extract_timeout_seconds",
         "max_concurrent", "context_window_lines", "max_cost_cents_per_day",
         "max_cost_cents_per_job", "job_timeout_seconds",
         "radarr_translate_tag", "sonarr_translate_tag", "webhook_secret",

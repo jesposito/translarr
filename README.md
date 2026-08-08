@@ -158,6 +158,8 @@ All config via env vars, `.env`, or the Settings page in the Web UI. Settings ch
 | `READING_RATE_CPS` | `17` | Max chars/sec (15-17 is standard for English) |
 | `MAX_CONCURRENT` | `2` | Parallel translation jobs |
 | `CONTEXT_WINDOW_LINES` | `10` | Prior translated lines fed to the LLM for context |
+| `FFPROBE_TIMEOUT_SECONDS` | `30` | Timeout for inspecting embedded subtitle tracks |
+| `FFMPEG_EXTRACT_TIMEOUT_SECONDS` | `120` | Timeout for extracting one embedded subtitle track |
 | `MAX_COST_CENTS_PER_DAY` | `1000` | Daily spend cap ($10). Goes over = HTTP 429 |
 | `MAX_COST_CENTS_PER_JOB` | `500` | Per-job cap ($5). Kills the job mid-batch if exceeded |
 | `JOB_TIMEOUT_SECONDS` | `1800` | Per-job wall-clock timeout (30 min) |
