@@ -7,6 +7,7 @@
   --bg-elevated: #161616;
   --bg-elevated-hover: #1c1c1c;
   --bg-input: #1f1f1f;
+  --bg-nav: #141414;
   --border: #2a2a2a;          /* decorative card seams only — sub-3:1, never use for inputs */
   --border-input: #525252;    /* 4.21:1 vs --bg, meets WCAG 1.4.11 for inputs */
   --border-strong: #5c5c5c;   /* 4.97:1 vs --bg, ghost-button outline */
@@ -73,6 +74,7 @@
     --bg-elevated: #fafafa;
     --bg-elevated-hover: #f4f4f5;
     --bg-input: #f4f4f5;
+    --bg-nav: #fafafa;
     --border: #e4e4e7;          /* decorative only */
     --border-input: #71717a;    /* 4.83:1 vs #fff for input borders */
     --border-strong: #52525b;   /* 7.73:1 vs #fff for ghost buttons */
@@ -101,6 +103,41 @@
   }
 }
 
+/* Optional alternate skin. The functional hierarchy and semantic colors stay
+   intact; only the atmosphere changes. Kept behind an explicit local toggle. */
+html[data-theme="unicorn"] {
+  --bg: #0d0812;
+  --bg-elevated: #18101f;
+  --bg-elevated-hover: #23152d;
+  --bg-input: #21162a;
+  --bg-nav: #140c1b;
+  --border: #352442;
+  --border-input: #88669a;
+  --border-strong: #a77aba;
+
+  --text: #fff7ff;
+  --text-muted: #d2badb;
+  --text-dim: #a58cad;
+
+  --accent: #f0abfc;
+  --accent-hover: #f9a8d4;
+  --accent-fg: #25082e;
+
+  --success: #5eead4;
+  --warn: #fde68a;
+  --error: #fda4af;
+  --error-bg: #321320;
+
+  --state-queued: #c4b5fd;
+  --state-running: #f0abfc;
+  --state-retrying: #fde68a;
+  --state-done: #5eead4;
+  --state-failed: #fda4af;
+  --state-cancelled: #c4b5fd;
+
+  color-scheme: dark;
+}
+
 *,
 *::before,
 *::after {
@@ -118,6 +155,40 @@ body {
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  min-width: 320px;
+  position: relative;
+}
+
+html[data-theme="unicorn"] body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: -1;
+  background:
+    radial-gradient(circle at 82% 8%, rgb(192 132 252 / 0.14), transparent 30rem),
+    radial-gradient(circle at 24% 92%, rgb(45 212 191 / 0.09), transparent 34rem);
+}
+
+::selection {
+  background: color-mix(in srgb, var(--accent) 78%, transparent);
+  color: var(--accent-fg);
+}
+
+* {
+  scrollbar-color: var(--border-strong) var(--bg);
+  scrollbar-width: thin;
+}
+
+*::-webkit-scrollbar { width: 10px; height: 10px; }
+*::-webkit-scrollbar-track { background: var(--bg); }
+*::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border: 3px solid var(--bg);
+  border-radius: var(--radius-pill);
 }
 
 /* WCAG 2.4.11 Focus Not Obscured — ensure focused elements clear the
@@ -143,6 +214,8 @@ h3 { font-size: var(--text-lg); }
 a {
   color: var(--accent);
   text-decoration: none;
+  text-underline-offset: 0.18em;
+  text-decoration-thickness: 1px;
 }
 a:hover { text-decoration: underline; }
 a:focus-visible,
@@ -210,6 +283,11 @@ button {
   padding: var(--space-4);
 }
 
+html[data-theme="unicorn"] .card,
+html[data-theme="unicorn"] .stat {
+  box-shadow: 0 10px 30px rgb(8 3 12 / 0.22);
+}
+
 .stat {
   background: var(--bg-elevated);
   border: 1px solid var(--border);
@@ -265,9 +343,14 @@ button {
   font-size: var(--text-sm);
   font-weight: 500;
   cursor: pointer;
-  transition: background var(--dur) var(--ease), border-color var(--dur) var(--ease);
+  transition:
+    background var(--dur) var(--ease),
+    border-color var(--dur) var(--ease),
+    color var(--dur) var(--ease),
+    transform var(--dur) var(--ease);
   text-decoration: none;
 }
+.btn:active:not(:disabled) { transform: translateY(1px); }
 .btn:disabled { opacity: 0.5; cursor: not-allowed; }
 .btn-primary {
   background: var(--accent);

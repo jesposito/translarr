@@ -200,22 +200,32 @@
 </svelte:head>
 
 <header class="page-head">
-  <div class="title-row">
-    <h1>Translarr</h1>
+  <div class="heading-copy">
+    <div class="title-row">
+      <h1>Dashboard</h1>
+      {#if health}
+        <span class="version-pill" aria-label="Server version {health.version}">
+          v{health.version}
+        </span>
+      {:else}
+        <span class="version-pill skeleton" aria-hidden="true" style="width: 48px; height: 20px;"></span>
+      {/if}
+    </div>
     {#if health}
-      <span class="version-pill" aria-label="Server version {health.version}">
-        v{health.version}
-      </span>
+      <p class="sub runtime-summary">
+        <span class="runtime-dot" aria-hidden="true"></span>
+        <span>{health.llm_provider}</span>
+        <span aria-hidden="true">·</span>
+        <span class="mono">{health.llm_model}</span>
+      </p>
     {:else}
-      <span class="version-pill skeleton" aria-hidden="true" style="width: 48px; height: 20px;"></span>
+      <span class="skeleton runtime-skeleton" aria-hidden="true"></span>
     {/if}
   </div>
-  {#if health}
-    <p class="sub">
-      Provider <span class="mono">{health.llm_provider}</span>
-      · Model <span class="mono">{health.llm_model}</span>
-    </p>
-  {/if}
+  <nav class="page-actions" aria-label="Dashboard actions">
+    <a class="btn btn-primary" href="/translate">New translation</a>
+    <a class="btn btn-ghost" href="/library">Browse library</a>
+  </nav>
 </header>
 
 {#if loadError}
@@ -228,11 +238,11 @@
   <h2 id="stats-heading" class="sr-only">Summary stats</h2>
   <div class="stat-row" aria-busy={stats === null}>
     {#if stats}
-      <div class="stat">
+      <div class="stat" data-tone="cost">
         <span class="value" aria-label="Today's spend {dollars(stats.today.cost_cents)}">
           {dollars(stats.today.cost_cents)}
         </span>
-        <span class="label">Today's cost</span>
+        <span class="label">Spent today</span>
         <span
           class="cap-bar"
           aria-hidden="true"
@@ -252,19 +262,26 @@
           {/if}
         </span>
       </div>
-      <div class="stat">
+      <div class="stat" data-tone="jobs">
         <span class="value">{stats.today.jobs_count}</span>
-        <span class="label">Today's jobs</span>
+        <span class="label">Jobs today</span>
+        <span class="stat-note">
+          {stats.today.jobs_done} complete · {stats.today.jobs_failed} failed
+        </span>
       </div>
-      <div class="stat">
+      <div class="stat" data-tone="queue">
         <span class="value">
           {stats.queue.queued + stats.queue.running + stats.queue.retrying}
         </span>
-        <span class="label">Queue depth</span>
+        <span class="label">In the queue</span>
+        <span class="stat-note">
+          {stats.queue.running} running · {stats.queue.retrying} retrying
+        </span>
       </div>
-      <div class="stat">
+      <div class="stat" data-tone="history">
         <span class="value">{dollars(stats.all_time.cost_cents)}</span>
-        <span class="label">All-time cost</span>
+        <span class="label">All-time spend</span>
+        <span class="stat-note">Across {stats.all_time.jobs_count} jobs</span>
       </div>
     {:else}
       {#each Array(4) as _}
@@ -291,11 +308,18 @@
         <div class="skeleton" style="width: 40%; height: 12px;"></div>
       </div>
     {:else if liveJobs.length === 0}
-      <div class="card empty">
-        <p>No jobs running.</p>
-        <p class="muted">
-          <a href="/translate">Queue something<span aria-hidden="true"> →</span></a>
-        </p>
+      <div class="card empty empty-action">
+        <span class="empty-mark" aria-hidden="true">
+          <svg viewBox="0 0 32 32" focusable="false">
+            <path d="M7 9.5h18v12H14l-5 3.5v-3.5H7z" />
+            <path d="M12 14h8M12 17.5h5" />
+          </svg>
+        </span>
+        <div class="empty-copy">
+          <p><strong>Queue is clear</strong></p>
+          <p class="muted">Nothing is translating right now.</p>
+        </div>
+        <a class="btn btn-ghost" href="/translate">Start a translation</a>
       </div>
     {:else}
       <ul class="live-list">
@@ -441,7 +465,12 @@
 <style>
   .page-head {
     margin-bottom: var(--space-6);
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: var(--space-5);
   }
+  .heading-copy { min-width: 0; }
   .title-row {
     display: flex;
     align-items: baseline;
@@ -461,6 +490,37 @@
     color: var(--text-muted);
     font-size: var(--text-sm);
   }
+  .runtime-summary {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    min-width: 0;
+  }
+  .runtime-summary .mono {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .runtime-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--success);
+    box-shadow: 0 3px 8px color-mix(in srgb, var(--success) 28%, transparent);
+    flex: 0 0 auto;
+  }
+  .runtime-skeleton {
+    display: block;
+    width: min(280px, 72vw);
+    height: 14px;
+    margin-top: var(--space-2);
+  }
+  .page-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    flex: 0 0 auto;
+  }
   .muted { color: var(--text-muted); }
 
   .error-banner {
@@ -479,8 +539,30 @@
 
   .stat-row {
     display: grid;
-    grid-template-columns: repeat(4, 1fr);
+    grid-template-columns: repeat(4, minmax(0, 1fr));
     gap: var(--space-4);
+  }
+  .stat {
+    position: relative;
+    overflow: hidden;
+  }
+  .stat::before {
+    content: "";
+    position: absolute;
+    inset: 0 auto 0 0;
+    width: 1px;
+    background: var(--accent);
+    opacity: 0.58;
+  }
+  .stat[data-tone="jobs"]::before { background: var(--success); }
+  .stat[data-tone="queue"]::before { background: var(--warn); }
+  .stat[data-tone="history"]::before { background: var(--text-dim); }
+  .stat-note {
+    color: var(--text-dim);
+    font-size: var(--text-xs);
+    margin-top: auto;
+    padding-top: var(--space-2);
+    font-variant-numeric: tabular-nums;
   }
   .cap-bar {
     display: block;
@@ -494,7 +576,6 @@
     display: block;
     height: 100%;
     background: var(--accent);
-    transition: width var(--dur) var(--ease);
   }
   .cap-bar.warn .cap-fill { background: var(--warn); }
   .cap-bar.hot  .cap-fill { background: var(--error); }
@@ -505,10 +586,20 @@
     font-variant-numeric: tabular-nums;
   }
   @media (max-width: 768px) {
+    .page-head {
+      align-items: flex-start;
+      flex-direction: column;
+      gap: var(--space-4);
+    }
     .stat-row { grid-template-columns: repeat(2, 1fr); }
   }
   @media (max-width: 480px) {
     .stat-row { grid-template-columns: 1fr; }
+    .page-actions {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      width: 100%;
+    }
   }
 
   .section-head {
@@ -588,6 +679,38 @@
     color: var(--text-muted);
   }
   .empty p { margin: var(--space-1) 0; }
+  .empty-action {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    align-items: center;
+    gap: var(--space-4);
+    text-align: left;
+    padding: var(--space-5);
+  }
+  .empty-copy strong { color: var(--text); font-weight: 600; }
+  .empty-mark {
+    width: 40px;
+    height: 40px;
+    display: inline-grid;
+    place-items: center;
+    color: var(--accent);
+  }
+  .empty-mark svg {
+    width: 100%;
+    height: 100%;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.5;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+  @media (max-width: 560px) {
+    .empty-action {
+      grid-template-columns: auto 1fr;
+      padding: var(--space-4);
+    }
+    .empty-action .btn { grid-column: 1 / -1; }
+  }
 
   .no-pad { padding: 0; overflow: hidden; }
   table {

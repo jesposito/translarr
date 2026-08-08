@@ -317,7 +317,7 @@
          to find the form via landmark navigation. The form is NOT a
          modal (no overlay, no focus trap) but it does push focus to
          the first field on open and restore it on close. -->
-    <section class="card series-form" role="region" aria-labelledby="series-form-heading">
+    <section class="card series-form" aria-labelledby="series-form-heading">
       <h3 id="series-form-heading">Configure series</h3>
       <p class="hint">
         Set source/target language defaults for all files under this directory.
@@ -487,7 +487,6 @@
     height: 100%;
     background: var(--success);
     border-radius: 999px;
-    transition: width var(--dur) var(--ease);
   }
 
   /* Series config bar */
