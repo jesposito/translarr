@@ -190,32 +190,23 @@ See `docs/ARCHITECTURE.md` for the token-budget math.
 
 ## Where Translarr fits
 
-```
-                    What you have
-                          |
-            +-------------+--------------+
-            v                            v
-  No subtitles anywhere       Subtitles in the wrong language
-            |                            |
-            v                            v
-       Whisper (subgen)            +-----------+
-       Audio -> text               |TRANSLARR  |
-       (lossy, guesses names)      +-----------+
-                                          |
-            +-----------------------------+---------+
-            v                                       v
-  Embedded foreign track              External .srt provider
-  (Russian, Japanese, etc.)           (OpenSubtitles, Jimaku, planned)
-            |                                       |
-            +------------------+--------------------+
-                               v
-              LLM translation with sliding context
-              + reading-rate adapter
-              + ASS/SSA style-tag preservation
-                               |
-                               v
-              <basename>.en.translarr.srt next to the video
-              + library refresh in Emby/Jellyfin
+```text
+What do you have?
+│
+├── No subtitles at all ──────────────► Whisper / subgen (audio → text)
+│
+├── Subtitles in your language exist ─► Bazarr fetches them
+│
+└── Subtitles, but in the wrong language
+    │
+    ▼
+    Translarr
+    ├── reads the embedded track or a sidecar .srt / .ass
+    ├── translates with an LLM, using nearby lines for context
+    ├── keeps ASS/SSA style tags intact
+    ├── adjusts line timing so each cue is readable
+    └── writes <basename>.en.translarr.srt next to the video
+        and refreshes Emby / Jellyfin
 ```
 
 Bazarr fetches existing subs. Subgen transcribes audio. Translarr translates the subtitle track that's already there. Different jobs.
@@ -238,64 +229,69 @@ Free, self-hosted, no deadline.
 
 ## Architecture
 
-```
-                  +--------------------------------------+
-                  |          Translarr Server            |
-                  |  +-----------------------------+     |
-   Radarr --webhook-->/webhooks/radarr -+           |     |
-   Sonarr --webhook-->/webhooks/sonarr -+  enqueue  |     |
-     Emby --webhook-->/webhooks/emby  --+     |     |     |
-  Jellyfin --webhook-->/webhooks/jellyfin-+  v     |     |
-     Plex --webhook-->/webhooks/plex -------+----+  |     |
-   Direct --POST--->/translate ---------------+  v  |     |
-                  |                       +--------+ |     |
-                  |  workers <---claim----|SQLite  | |     |
-                  |     |                 | queue  | |     |
-                  |     v                 +--------+ |     |
-                  |  Sub pipeline                    |     |
-                  |  +- ffmpeg extract OR direct .ass|     |
-                  |  +- pysubs2 parse                |     |
-                  |  +- batch + sliding context      |     |
-                  |  +- LLM router (5 providers)     |     |
-                  |  +- reading-rate adapt + split   |     |
-                  |  +- write .translarr.srt + refresh|    |
-                  +--------------------------------------+ 
-                              |
-                              v
-                <basename>.en.translarr.srt
-                next to source media
+```text
+  Radarr ───────┐
+  Sonarr ───────┤
+  Emby ─────────┤  webhooks
+  Jellyfin ─────┤
+  Plex ─────────┤
+  Web UI / API ─┘  POST /translate
+                │
+                ▼
+  ┌──────────────────────────────────────┐
+  │ Translarr server                     │
+  │                                      │
+  │ SQLite job queue                     │
+  │   │  dedup, retries, cost caps       │
+  │   ▼                                  │
+  │ Worker pool                          │
+  │   │                                  │
+  │   ▼                                  │
+  │ Subtitle pipeline                    │
+  │   1. extract the track (ffmpeg)      │
+  │      or read the sidecar file        │
+  │   2. parse (pysubs2)                 │
+  │   3. batch with sliding context      │
+  │   4. LLM router (5 providers)        │
+  │   5. reading-rate adapt + split      │
+  │   6. write the .translarr.srt        │
+  └──────────────────────────────────────┘
+                │
+                ▼
+  <basename>.en.translarr.srt next to the video,
+  then an Emby / Jellyfin library refresh
 ```
 
 ## Project structure
 
-```
+```text
 translarr/
-+-- server/              # Python FastAPI
-|   +-- main.py
-|   +-- config.py
-|   +-- cost_tracker.py
-|   +-- db.py            # SQLite + migrations
-|   +-- browse.py        # File browser API
-|   +-- glossary.py      # Per-series glossary persistence
-|   +-- series_config.py # Per-series language overrides
-|   +-- library_refresh.py
-|   +-- llm/             # router + 5 providers
-|   +-- queue/           # base.py + sqlite.py + worker.py
-|   +-- subs/            # extract.py + pipeline.py + reading_rate.py
-|   +-- webhooks/        # radarr, sonarr, emby, jellyfin, plex
-+-- ui/                  # SvelteKit static Web UI
-+-- plugins/
-|   +-- emby/            # C# Emby plugin (ISubtitleProvider)
-|   +-- jellyfin/        # C# Jellyfin plugin (planned)
-+-- templates/           # Unraid Community Applications template
-+-- tests/               # pytest suite
-+-- docs/
-|   +-- ARCHITECTURE.md
-|   +-- INSTALL.md
-|   +-- EMBY-WORKFLOW.md
-+-- docker-compose.yml
-+-- Dockerfile
-+-- pyproject.toml
+├── server/              # Python FastAPI
+│   ├── main.py
+│   ├── config.py
+│   ├── cost_tracker.py
+│   ├── db.py            # SQLite + migrations
+│   ├── browse.py        # File browser API
+│   ├── glossary.py      # Per-series glossary persistence
+│   ├── series_config.py # Per-series language overrides
+│   ├── library_refresh.py
+│   ├── llm/             # router + 5 providers
+│   ├── queue/           # base.py + sqlite.py + worker.py
+│   ├── subs/            # extract.py + pipeline.py + reading_rate.py
+│   └── webhooks/        # radarr, sonarr, emby, jellyfin, plex
+├── ui/                  # SvelteKit static Web UI
+├── plugins/
+│   ├── emby/            # C# Emby plugin (ISubtitleProvider)
+│   └── jellyfin/        # C# Jellyfin plugin (planned)
+├── templates/           # Unraid Community Applications template
+├── tests/               # pytest suite
+├── docs/
+│   ├── ARCHITECTURE.md
+│   ├── INSTALL.md
+│   └── EMBY-WORKFLOW.md
+├── docker-compose.yml
+├── Dockerfile
+└── pyproject.toml
 ```
 
 ## License
