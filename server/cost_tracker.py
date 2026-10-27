@@ -86,13 +86,17 @@ def check_job_cap(estimated_cents: int, max_job_cents: int) -> None:
 
 
 # Per-token cost table (cents per million tokens). Approximate; refined when provider returns usage.
-# Sourced from public pricing as of 2026-05-14.
+# Anthropic rows sourced from public pricing as of 2026-10; others 2026-05.
 COST_TABLE_CENTS_PER_MTOK: dict[str, tuple[int, int]] = {
     # (input_cents_per_million, output_cents_per_million)
-    "claude-opus-4-7": (1500, 7500),
+    "claude-opus-5-5": (400, 2000),
+    "claude-sonnet-5-5": (200, 1000),
+    # Haiku 5.5 doubles to 50/250 above 100K-token prompts; our batches stay well under.
+    "claude-haiku-5-5": (10, 50),
+    "claude-opus-4-7": (500, 2500),
     "claude-sonnet-4-6": (300, 1500),
-    "claude-haiku-4-5-20251001": (80, 400),
-    "claude-haiku-4-5": (80, 400),
+    "claude-haiku-4-5-20251001": (100, 500),
+    "claude-haiku-4-5": (100, 500),
     "gpt-5.5": (100, 800),
     "gpt-4o-mini": (15, 60),
     # DeepSeek (2026-05 pricing)

@@ -34,9 +34,11 @@ class AnthropicProvider:
 
         msg = await self.client.messages.create(
             model=self.model,
-            max_tokens=4096,
+            # Claude 5.x models think by default and thinking tokens count
+            # against max_tokens, so leave headroom beyond the visible lines.
+            max_tokens=16000,
             system=system,
             messages=[{"role": "user", "content": user_text}],
         )
-        raw = "".join(b.text for b in msg.content if hasattr(b, "text"))
+        raw = "".join(b.text for b in msg.content if b.type == "text")
         return reconcile_lines(raw.split("\n"), len(lines))

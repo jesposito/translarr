@@ -1,8 +1,8 @@
 # --- UI build stage ------------------------------------------------------
 # Builds the SvelteKit static bundle and emits it to /ui/dist for the
-# runtime stage to copy in. Pinned to node:20-slim — bumping major node
-# requires a re-test against adapter-static.
-FROM node:20-slim AS ui-builder
+# runtime stage to copy in. Pinned to node:24-slim (active LTS) — bumping
+# major node requires a re-test against adapter-static.
+FROM node:24-slim AS ui-builder
 
 WORKDIR /ui
 COPY ui/package.json ui/package-lock.json* ./
