@@ -192,10 +192,10 @@ html[data-theme="unicorn"] body::before {
 }
 
 /* WCAG 2.4.11 Focus Not Obscured — ensure focused elements clear the
-   48px sticky topbar when in-page jumps or Tab-into-bottom scrolls them
-   under it. Matches the topbar height defined in +layout.svelte. */
+   ~69px sticky mobile topbar (--topbar-h in +layout.svelte) when in-page
+   jumps or Tab-into-bottom scrolls them under it. */
 html {
-  scroll-padding-top: 64px;
+  scroll-padding-top: 80px;
 }
 
 h1,
@@ -377,6 +377,11 @@ html[data-theme="unicorn"] .stat {
 .btn-danger:hover:not(:disabled) {
   background: var(--error-bg);
   text-decoration: none;
+}
+.btn-sm {
+  min-height: 32px;
+  padding: 0 var(--space-3);
+  font-size: var(--text-xs);
 }
 
 .mono {

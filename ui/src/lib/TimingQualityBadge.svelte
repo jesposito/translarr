@@ -44,6 +44,7 @@
     class="qbadge"
     class:compact={size === 'compact'}
     data-quality={resolved.bucket}
+    role={decorative ? undefined : 'img'}
     aria-hidden={decorative ? 'true' : undefined}
     aria-label={decorative ? undefined : `Timing quality ${resolved.score}, ${resolved.label.toLowerCase()}`}
   >

@@ -163,8 +163,12 @@
     }
   }
 
+  // Same inline confirm as glossary deletes; keyed by term + lang.
+  let pendingDeleteEntry = $state<string | null>(null);
+
   async function deleteEntry(sourceTerm: string, targetLang: string) {
     if (!selectedId) return;
+    pendingDeleteEntry = null;
     try {
       const r = await fetch(
         `/glossaries/${encodeURIComponent(selectedId)}/${encodeURIComponent(sourceTerm)}?target_lang=${encodeURIComponent(targetLang)}`,
@@ -207,6 +211,7 @@
     // Actually, glossaries are implicit — they exist when they have entries.
     // Select the new ID and let the user add entries.
     selectedId = newGlossaryId.trim();
+    selectedTitle = null;
     entries = [];
     newGlossaryId = '';
     await loadGlossaries();
@@ -444,6 +449,7 @@
   <!-- Right panel: entries for selected glossary -->
   <section class="panel" aria-labelledby="entries-heading">
     {#if !selectedId}
+      <h2 id="entries-heading" class="sr-only">Glossary entries</h2>
       <div class="card empty placeholder">
         <p>
           Pick a series or film on the left to start editing its glossary.
@@ -518,7 +524,7 @@
             rows="6"
             bind:value={importText}
             aria-describedby="import-help"
-            placeholder={"tanjiro&#9;Tanjiro Kamado&#9;protagonist name&#10;nezuko&#9;Nezuko Kamado&#9;sister"}
+            placeholder={"tanjiro\tTanjiro Kamado\tprotagonist name\nnezuko\tNezuko Kamado\tsister"}
           ></textarea>
           <button
             type="button"
@@ -568,10 +574,23 @@
                       class="btn-icon"
                       title="Delete {entry.source_term}"
                       aria-label="Delete entry {entry.source_term}"
-                      onclick={() => deleteEntry(entry.source_term, entry.target_lang)}
+                      onclick={() => (pendingDeleteEntry = entry.source_term + entry.target_lang)}
                     >✕</button>
                   </td>
                 </tr>
+                {#if pendingDeleteEntry === entry.source_term + entry.target_lang}
+                  <tr>
+                    <td colspan="5">
+                      <div class="confirm-row" role="alertdialog" aria-labelledby="confirm-entry-label">
+                        <span id="confirm-entry-label">
+                          Delete "{entry.source_term}" ({entry.target_lang})? Cannot be undone.
+                        </span>
+                        <button type="button" class="btn btn-danger btn-sm" onclick={() => deleteEntry(entry.source_term, entry.target_lang)}>Delete</button>
+                        <button type="button" class="btn btn-ghost btn-sm" onclick={() => (pendingDeleteEntry = null)}>Cancel</button>
+                      </div>
+                    </td>
+                  </tr>
+                {/if}
               {/each}
             </tbody>
           </table>
@@ -901,15 +920,9 @@
     font-size: var(--text-sm);
     min-height: 36px;
   }
-  .add-form input:first-child { flex: 1; min-width: 120px; }
-  .add-form input:nth-child(2) { flex: 1; min-width: 120px; }
+  #entry-source,
+  #entry-translation { flex: 1; min-width: 120px; }
   .lang-input { width: 60px !important; flex: 0 0 60px !important; }
-
-  .btn-sm {
-    min-height: 36px;
-    padding: 0 var(--space-3);
-    font-size: var(--text-sm);
-  }
 
   /* Import box */
   .import-box {
@@ -934,7 +947,7 @@
   }
 
   /* Table */
-  .no-pad { padding: 0; overflow: hidden; }
+  .no-pad { padding: 0; overflow-x: auto; }
   table {
     width: 100%;
     border-collapse: collapse;

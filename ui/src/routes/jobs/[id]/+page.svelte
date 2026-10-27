@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount, onDestroy } from 'svelte';
+  import { onMount, onDestroy, untrack } from 'svelte';
   import { page } from '$app/stores';
   import { goto } from '$app/navigation';
   import TimingQualityBadge from '$lib/TimingQualityBadge.svelte';
@@ -66,6 +66,9 @@
   // Quality breakdown disclosure — bound to a $state var so polling
   // re-renders don't collapse it.
   let breakdownOpen = $state(false);
+  // Inline confirm (same pattern as Glossary deletes) for actions that
+  // stop work or spend money.
+  let pendingAction = $state<'cancel' | 'retry' | null>(null);
 
   const jobId = $derived($page.params.id);
   const shortId = $derived(jobId ? jobId.slice(0, 8) : '');
@@ -80,6 +83,9 @@
     if (!epoch) return '—';
     return new Date(epoch * 1000).toISOString();
   }
+  function localTime(epoch: number): string {
+    return new Date(epoch * 1000).toLocaleString();
+  }
   function relTime(epoch: number | null): string {
     if (!epoch) return '';
     const diff = Math.max(0, Date.now() / 1000 - epoch);
@@ -90,9 +96,12 @@
   }
 
   async function load() {
-    if (!jobId) return;
+    const id = jobId;
+    if (!id) return;
     try {
-      const r = await fetch(`/jobs/${jobId}`);
+      const r = await fetch(`/jobs/${id}`);
+      // Navigated to another job while this request was in flight.
+      if (id !== jobId) return;
       if (r.status === 404) {
         loadError = 'Job not found.';
         job = null;
@@ -101,6 +110,7 @@
       }
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       const next = (await r.json()) as Job;
+      if (id !== jobId) return;
       // Emit a transition-only announcement so SR users only hear about
       // ACTUAL state changes, not every 2s repoll.
       if (prevState && prevState !== next.state) {
@@ -187,6 +197,7 @@
 
   async function cancel() {
     if (!job || actionPending) return;
+    pendingAction = null;
     actionPending = true;
     try {
       const r = await fetch(`/jobs/${job.id}`, { method: 'DELETE' });
@@ -202,6 +213,7 @@
 
   async function retry() {
     if (!job || actionPending) return;
+    pendingAction = null;
     actionPending = true;
     try {
       // POST /jobs/{id}/retry sets force=true on the new row so the
@@ -240,9 +252,27 @@
 
   onMount(() => {
     loadHealth();
-    load().then(() => {
-      if (!terminal) startPolling();
+  });
+
+  // Retry navigates to /jobs/<newId>, which reuses this component, so
+  // onMount won't fire again. Reset and reload whenever the id changes
+  // (this also covers the first mount).
+  $effect(() => {
+    const id = jobId;
+    untrack(() => {
+      stopPolling();
+      job = null;
+      loadError = null;
+      lastLoadError = null;
+      prevState = null;
+      stateAnnouncement = '';
+      breakdownOpen = false;
+      pendingAction = null;
+      load().then(() => {
+        if (id === jobId && !terminal) startPolling();
+      });
     });
+    return stopPolling;
   });
 
   onDestroy(() => {
@@ -306,7 +336,7 @@
       <dt>Target language</dt>
       <dd class="mono">{job.target_lang}</dd>
 
-      <dt>Provider / model</dt>
+      <dt>Current provider / model</dt>
       <dd class="mono">
         {#if health}
           {health.llm_provider} / {health.llm_model}
@@ -318,7 +348,7 @@
       <dt>Created</dt>
       <dd>
         {#if job.created_at}
-          <time datetime={isoTime(job.created_at)}>{isoTime(job.created_at)}</time>
+          <time datetime={isoTime(job.created_at)}>{localTime(job.created_at)}</time>
           <span class="muted">· {relTime(job.created_at)}</span>
         {:else}
           —
@@ -328,7 +358,7 @@
       <dt>Updated</dt>
       <dd>
         {#if job.updated_at}
-          <time datetime={isoTime(job.updated_at)}>{isoTime(job.updated_at)}</time>
+          <time datetime={isoTime(job.updated_at)}>{localTime(job.updated_at)}</time>
           <span class="muted">· {relTime(job.updated_at)}</span>
         {:else}
           —
@@ -338,7 +368,7 @@
       <dt>Finished</dt>
       <dd>
         {#if job.finished_at}
-          <time datetime={isoTime(job.finished_at)}>{isoTime(job.finished_at)}</time>
+          <time datetime={isoTime(job.finished_at)}>{localTime(job.finished_at)}</time>
           <span class="muted">· {relTime(job.finished_at)}</span>
         {:else}
           —
@@ -369,7 +399,8 @@
     </dl>
   </section>
 
-  {#if job.timing_quality}
+  <!-- Legacy jobs only carry {score}; the breakdown needs the full dict. -->
+  {#if job.timing_quality?.conformance_pct != null}
     <section class="card" aria-labelledby="quality-heading">
       <h2 id="quality-heading" class="sr-only">Timing quality breakdown</h2>
       <!-- Native <details> conveys expanded/collapsed state to AT without
@@ -455,11 +486,18 @@
       <button
         type="button"
         class="btn btn-danger"
-        onclick={cancel}
+        onclick={() => (pendingAction = 'cancel')}
         disabled={actionPending}
       >
         {actionPending ? 'Cancelling…' : 'Cancel job'}
       </button>
+      {#if pendingAction === 'cancel'}
+        <div class="confirm-row" role="alertdialog" aria-labelledby="confirm-cancel-label">
+          <span id="confirm-cancel-label">Cancel this job? The translation stops and can't be resumed.</span>
+          <button type="button" class="btn btn-danger btn-sm" onclick={cancel}>Cancel job</button>
+          <button type="button" class="btn btn-ghost btn-sm" onclick={() => (pendingAction = null)}>Keep running</button>
+        </div>
+      {/if}
     {/if}
 
     {#if ['done', 'failed', 'cancelled'].includes(job.state)}
@@ -469,7 +507,7 @@
       <button
         type="button"
         class="btn btn-primary"
-        onclick={retry}
+        onclick={() => (job!.state === 'done' ? (pendingAction = 'retry') : retry())}
         disabled={actionPending}
         aria-describedby="retry-help"
         title={job.state === 'done'
@@ -485,6 +523,15 @@
           ? 'Re-translates this completed file, for example with a different model.'
           : 'Re-enqueues this job with force enabled.'}
       </span>
+      {#if pendingAction === 'retry'}
+        <div class="confirm-row" role="alertdialog" aria-labelledby="confirm-retry-label">
+          <span id="confirm-retry-label">
+            Re-translate with the current model? This replaces the existing subtitle and costs about the same again.
+          </span>
+          <button type="button" class="btn btn-primary btn-sm" onclick={retry}>Re-translate</button>
+          <button type="button" class="btn btn-ghost btn-sm" onclick={() => (pendingAction = null)}>Cancel</button>
+        </div>
+      {/if}
     {/if}
   </section>
 {/if}
@@ -616,6 +663,20 @@
     display: flex;
     gap: var(--space-3);
     margin-top: var(--space-5);
+    flex-wrap: wrap;
+  }
+  /* Matches the Glossary page's inline confirm. */
+  .confirm-row {
+    flex-basis: 100%;
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    padding: var(--space-2) var(--space-3);
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-sm);
+    font-size: var(--text-sm);
   }
 
   .toast {

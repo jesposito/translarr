@@ -137,11 +137,16 @@
       ]);
       health = h;
       stats = s;
-      // Combine running + retrying for the live stream view.
-      const retrying = await fetchJSON<{ jobs: Job[] }>(
-        '/jobs?state=retrying&limit=20'
-      ).catch(() => ({ jobs: [] as Job[] }));
-      const newLive = [...live.jobs, ...retrying.jobs].sort(
+      // Combine running + retrying + queued for the live stream view, so
+      // the list matches the "In the queue" tile.
+      const [retrying, queued] = await Promise.all(
+        ['retrying', 'queued'].map((st) =>
+          fetchJSON<{ jobs: Job[] }>(`/jobs?state=${st}&limit=20`).catch(() => ({
+            jobs: [] as Job[]
+          }))
+        )
+      );
+      const newLive = [...live.jobs, ...retrying.jobs, ...queued.jobs].sort(
         (a, b) => b.updated_at - a.updated_at
       );
 
@@ -242,7 +247,7 @@
         <span class="value" aria-label="Today's spend {dollars(stats.today.cost_cents)}">
           {dollars(stats.today.cost_cents)}
         </span>
-        <span class="label">Spent today</span>
+        <span class="label">Spent today (UTC)</span>
         <span
           class="cap-bar"
           aria-hidden="true"
@@ -317,7 +322,7 @@
         </span>
         <div class="empty-copy">
           <p><strong>Queue is clear</strong></p>
-          <p class="muted">Nothing is translating right now.</p>
+          <p class="muted">Nothing queued or translating.</p>
         </div>
         <a class="btn btn-ghost" href="/translate">Start a translation</a>
       </div>
@@ -712,7 +717,7 @@
     .empty-action .btn { grid-column: 1 / -1; }
   }
 
-  .no-pad { padding: 0; overflow: hidden; }
+  .no-pad { padding: 0; overflow-x: auto; }
   table {
     width: 100%;
     border-collapse: collapse;

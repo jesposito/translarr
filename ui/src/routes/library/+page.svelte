@@ -37,6 +37,8 @@
     source_lang: string | null;
     target_lang: string | null;
     path_prefix: string | null;
+    llm_provider: string | null;
+    llm_model: string | null;
     auto_translate: number;
   }
 
@@ -60,9 +62,9 @@
   // C3 (a11y audit): inline toast — replaces alert() so non-modal
   // notifications don't yank focus and screen-reader users hear them
   // via a live region instead of an OS dialog.
-  let toast = $state<{ kind: 'success' | 'error'; msg: string } | null>(null);
-  function showToast(kind: 'success' | 'error', msg: string) {
-    toast = { kind, msg };
+  let toast = $state<{ kind: 'success' | 'error'; msg: string; jobId?: string } | null>(null);
+  function showToast(kind: 'success' | 'error', msg: string, jobId?: string) {
+    toast = { kind, msg, jobId };
     if (kind === 'success') {
       setTimeout(() => { if (toast?.msg === msg) toast = null; }, 5000);
     }
@@ -171,10 +173,16 @@
       const r = await fetch(`/series/${encodeURIComponent(seriesFormId.trim())}`, {
         method: 'PUT',
         headers: { 'content-type': 'application/json' },
+        // PUT overwrites every column, so carry over the fields this form
+        // doesn't edit. Keep the existing prefix too: editing from a
+        // subfolder must not narrow the series to that subfolder.
         body: JSON.stringify({
           source_lang: seriesFormLang.trim() || null,
           target_lang: seriesFormTarget.trim() || null,
-          path_prefix: currentPath,
+          llm_provider: seriesMatch?.llm_provider ?? null,
+          llm_model: seriesMatch?.llm_model ?? null,
+          auto_translate: !!seriesMatch?.auto_translate,
+          path_prefix: seriesMatch?.path_prefix ?? currentPath,
         }),
       });
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
@@ -189,7 +197,12 @@
     }
   }
 
+  // Paths with a Translate request in flight, so a double-click can't
+  // queue the same file twice.
+  let translating = $state<Set<string>>(new Set());
+
   async function translateFile(filePath: string) {
+    translating = new Set(translating).add(filePath);
     try {
       const r = await fetch('/translate', {
         method: 'POST',
@@ -202,9 +215,17 @@
       }
       const result = await r.json();
       await browse(currentPath);
-      showToast('success', `Job queued: ${result.job_id || result.id || 'see Dashboard'}`);
+      if (result.status === 'dedup' && result.state === 'done') {
+        showToast('success', 'Already translated.');
+      } else {
+        showToast('success', 'Queued.', result.job_id);
+      }
     } catch (e) {
       showToast('error', e instanceof Error ? e.message : String(e));
+    } finally {
+      const next = new Set(translating);
+      next.delete(filePath);
+      translating = next;
     }
   }
 
@@ -248,7 +269,10 @@
     role={toast.kind === 'error' ? 'alert' : 'status'}
     aria-atomic="true"
   >
-    <span>{toast.msg}</span>
+    <span>
+      {toast.msg}
+      {#if toast.jobId}<a href="/jobs/{toast.jobId}">View job</a>{/if}
+    </span>
     <button
       type="button"
       class="toast-dismiss"
@@ -321,7 +345,7 @@
       <h3 id="series-form-heading">Configure series</h3>
       <p class="hint">
         Set source/target language defaults for all files under this directory.
-        Also creates a glossary scoped to this series.
+        Glossary entries for this ID can be added on the Glossary page.
       </p>
       <div class="form-row">
         <label for="series-id">Series ID</label>
@@ -398,6 +422,7 @@
             type="button"
             class="btn btn-ghost btn-sm"
             aria-label="Translate {file.name}"
+            disabled={translating.has(file.path)}
             onclick={() => translateFile(file.path)}
           >Translate</button>
         {/if}
@@ -633,18 +658,12 @@
     border: 0;
     color: inherit;
     cursor: pointer;
-    font-size: var(--text-md);
+    font-size: var(--text-base);
     line-height: 1;
     padding: 0 var(--space-2);
     margin-left: auto;
     min-width: 32px;
     min-height: 32px;
-  }
-
-  .btn-sm {
-    min-height: 32px;
-    padding: 0 var(--space-3);
-    font-size: var(--text-xs);
   }
 
   .empty {
@@ -656,6 +675,13 @@
 
   .muted { color: var(--text-muted); }
   .small { font-size: var(--text-sm); }
+
+  @media (max-width: 640px) {
+    /* Long file names keep the line beside the icon (24px + gap);
+       size, pill and button wrap below. */
+    .file-row { flex-wrap: wrap; }
+    .file-row .row-name { flex-basis: calc(100% - 24px - var(--space-3)); }
+  }
 
   @media (max-width: 768px) {
     .form-row {

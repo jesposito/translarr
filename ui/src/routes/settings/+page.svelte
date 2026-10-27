@@ -62,8 +62,6 @@
   let fieldStatus = $state<Record<string, 'idle' | 'saving' | 'saved' | 'error'>>({});
   // Per-field inline error messages from server validation.
   let fieldError = $state<Record<string, string>>({});
-  // Per-field "Saved · 2s ago" timestamps. Visible only, never announced.
-  let savedAt = $state<Record<string, number>>({});
   // Single page-level announcement. Debounced via setTimeout + RAF reset
   // so identical consecutive messages still re-trigger.
   let announcement = $state('');
@@ -80,14 +78,6 @@
 
   function dollars(cents: number): string {
     return `$${(cents / 100).toFixed(2)}`;
-  }
-
-  function relativeAge(epochSec: number): string {
-    const diff = Math.max(0, Date.now() / 1000 - epochSec);
-    if (diff < 60) return `${Math.floor(diff)}s ago`;
-    if (diff < 3600) return `${Math.floor(diff / 60)} min ago`;
-    if (diff < 86400) return `${Math.floor(diff / 3600)} hr ago`;
-    return `${Math.floor(diff / 86400)} days ago`;
   }
 
   function announce(msg: string) {
@@ -162,6 +152,12 @@
     const field = config?.fields.find((f) => f.key === key);
     if (!field) return;
     if (!field.mutable) return;
+    // A cleared number input binds to null; Number(null) would save 0.
+    if ((field.type === 'int' || field.type === 'float') && (local[key] == null || local[key] === '')) {
+      fieldError[key] = 'Enter a number, or use revert to restore the default.';
+      fieldStatus[key] = 'error';
+      return;
+    }
     // Don't fire for unchanged non-secret values (avoid PATCH-on-Tab spam).
     if (!opts.force && !field.is_secret) {
       const current = field.value;
@@ -211,7 +207,6 @@
       } else {
         local[key] = '';  // clear the just-written secret from the form
       }
-      savedAt[key] = Date.now() / 1000;
       fieldStatus[key] = 'saved';
       announce(`${humanLabel(field)} saved.`);
     } catch (e) {
@@ -265,10 +260,7 @@
   function badgeText(key: string): string {
     const s = fieldStatus[key];
     if (s === 'saving') return 'Saving…';
-    if (s === 'saved') {
-      const ts = savedAt[key];
-      return ts ? `Saved · ${relativeAge(ts)}` : 'Saved';
-    }
+    if (s === 'saved') return 'Saved';
     if (s === 'error') return 'Error';
     if (config?.fields.find((f) => f.key === key)?.source === 'db') return 'Overridden';
     return '';
@@ -599,9 +591,14 @@
             {#if field.default_label} <span class="muted small">Default: <code class="mono">{field.default_label}</code>.</span>{/if}
           </p>
 
-          <p id={statusId} class="field-status" aria-hidden="true">
-            {badgeText(field.key)}
-            {#if field.source === 'db' && field.mutable && !hasError}
+          <!-- Only the badge text is hidden from AT; the revert button
+               must stay reachable. -->
+          <div class="field-status">
+            <span id={statusId} aria-hidden="true">{badgeText(field.key)}</span>
+            {#if field.key.endsWith('_cents') && local[field.key] != null && local[field.key] !== ''}
+              <span>= {dollars(Number(local[field.key]))}</span>
+            {/if}
+            {#if field.source === 'db' && field.mutable}
               <button
                 type="button"
                 class="link-btn"
@@ -609,7 +606,7 @@
                 aria-label="Revert {humanLabel(field)} to default"
               >revert</button>
             {/if}
-          </p>
+          </div>
         </div>
       {/each}
 

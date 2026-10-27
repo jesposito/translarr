@@ -1,11 +1,6 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte';
 
-  interface Config {
-    target_lang: string;
-    [k: string]: unknown;
-  }
-
   interface Submission {
     job_id: string;
     media_path: string;
@@ -23,7 +18,8 @@
 
   // --- Form state ----------------------------------------------------------
   let mediaPath = $state('');
-  let targetLang = $state('en');
+  // Blank = let the server resolve it (series config, then TARGET_LANG).
+  let targetLang = $state('');
   let sourceLang = $state('');
   let sourceTrack = $state<string>('');
   let force = $state(false);
@@ -97,10 +93,7 @@
     }
 
     const tl = targetLang.trim();
-    if (!tl) {
-      targetLangError = 'Target language is required.';
-      ok = false;
-    } else if (!/^[a-z]{2,3}$/.test(tl)) {
+    if (tl && !/^[a-z]{2,3}$/.test(tl)) {
       targetLangError = 'Use 2 or 3 lowercase letters (e.g. en, eng).';
       ok = false;
     }
@@ -138,9 +131,9 @@
 
     const body: Record<string, unknown> = {
       media_path: mediaPath.trim(),
-      target_lang: targetLang.trim(),
       force
     };
+    if (targetLang.trim()) body.target_lang = targetLang.trim();
     if (sourceLang.trim()) body.source_lang = sourceLang.trim();
     if (sourceTrack !== '') body.source_track_index = Number(sourceTrack);
 
@@ -151,7 +144,7 @@
         body: JSON.stringify(body)
       });
       const text = await r.text();
-      let data: { status?: string; job_id?: string; detail?: unknown } = {};
+      let data: { status?: string; job_id?: string; state?: string; detail?: unknown } = {};
       try {
         data = text ? (JSON.parse(text) as typeof data) : {};
       } catch {
@@ -186,14 +179,15 @@
       result = {
         kind: 'success',
         jobId: data.job_id,
-        state: dedup ? 'already queued' : 'queued',
+        // Dedup also covers finished jobs, so report the real state.
+        state: data.state ?? 'queued',
         dedup
       };
 
       pushRecent({
         job_id: data.job_id,
         media_path: body.media_path as string,
-        target_lang: body.target_lang as string,
+        target_lang: (body.target_lang as string | undefined) ?? 'default',
         submitted_at: Date.now() / 1000,
         dedup
       });
@@ -240,22 +234,8 @@
     }
   }
 
-  async function loadConfigDefaults(): Promise<void> {
-    try {
-      const r = await fetch('/config');
-      if (!r.ok) return;
-      const cfg = (await r.json()) as Config;
-      if (cfg.target_lang && targetLang === 'en') {
-        targetLang = cfg.target_lang;
-      }
-    } catch {
-      // Non-fatal — user keeps the default 'en'.
-    }
-  }
-
   onMount(() => {
     loadRecents();
-    loadConfigDefaults();
   });
 </script>
 
@@ -313,25 +293,21 @@
       </div>
 
       <div class="field">
-        <label for="target-lang">
-          Target language
-          <span class="req" aria-hidden="true">*</span>
-        </label>
+        <label for="target-lang">Target language</label>
         <input
           id="target-lang"
           type="text"
           bind:value={targetLang}
           maxlength="3"
-          placeholder="en"
-          required
-          aria-required="true"
+          placeholder="(series or server default)"
           aria-invalid={targetLangError ? 'true' : undefined}
           aria-describedby="target-lang-help{targetLangError ? ' target-lang-err' : ''}"
           autocomplete="off"
           spellcheck="false"
         />
         <p id="target-lang-help" class="hint">
-          ISO 639-1 (2 letters) or 639-2 (3 letters). Lowercase.
+          Optional. Leave blank to use the series or server default.
+          Otherwise ISO 639-1 (2 letters) or 639-2 (3 letters), lowercase.
         </p>
         {#if targetLangError}
           <p id="target-lang-err" class="err">{targetLangError}</p>
@@ -447,7 +423,7 @@
 
         <dt>State</dt>
         <dd>
-          <span class="pill" data-state="queued">
+          <span class="pill" data-state={successState}>
             {successState}
           </span>
         </dd>
@@ -459,7 +435,11 @@
           </a>
         </dd>
       </dl>
-      {#if result.dedup}
+      {#if result.dedup && successState === 'done'}
+        <p class="hint">
+          This file was already translated. Tick 'Force re-translate' to run it again.
+        </p>
+      {:else if result.dedup}
         <p class="hint">
           A matching job was already queued; we returned that one instead of
           creating a duplicate.
@@ -617,12 +597,6 @@
     gap: var(--space-3);
     margin-top: var(--space-5);
     flex-wrap: wrap;
-  }
-
-  .btn-sm {
-    min-height: 28px;
-    padding: 0 var(--space-3);
-    font-size: var(--text-xs);
   }
 
   .result-card {

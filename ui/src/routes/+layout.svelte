@@ -259,7 +259,7 @@
   .brand-meta {
     display: block;
     margin: var(--space-1) 0 0 36px;
-    color: var(--text-dim);
+    color: var(--text-muted);
     font-size: var(--text-xs);
   }
 
@@ -279,7 +279,7 @@
   }
   .nav-footer p {
     margin: var(--space-2) var(--space-2) 0;
-    color: var(--text-dim);
+    color: var(--text-muted);
     font-size: var(--text-xs);
     line-height: 1.4;
   }
@@ -368,7 +368,12 @@
   }
 
   @media (max-width: 768px) {
-    .shell { grid-template-columns: 1fr; }
+    .shell {
+      grid-template-columns: 1fr;
+      /* 44px hamburger + vertical padding + bottom border. The sidenav
+         pins below this, so it must match the real topbar height. */
+      --topbar-h: calc(44px + var(--space-3) + max(var(--space-3), env(safe-area-inset-top)) + 1px);
+    }
     .topbar {
       display: flex;
       align-items: center;
@@ -381,7 +386,7 @@
       position: sticky;
       top: 0;
       z-index: 10;
-      min-height: 48px;
+      height: var(--topbar-h);
     }
     .hamburger {
       background: transparent;
@@ -398,12 +403,12 @@
     }
     .sidenav {
       position: fixed;
-      top: 48px;
+      top: var(--topbar-h);
       left: 0;
       right: 0;
       height: auto;
-      max-height: calc(100vh - 48px);
-      max-height: calc(100dvh - 48px);
+      max-height: calc(100vh - var(--topbar-h));
+      max-height: calc(100dvh - var(--topbar-h));
       /* M6: clear iOS home indicator */
       padding-bottom: max(var(--space-4), env(safe-area-inset-bottom));
       transform: translateY(-110%);
