@@ -35,7 +35,7 @@ Open `http://your-server:9100` for the Web UI, or verify it's running:
 
 ```bash
 curl http://localhost:9100/health
-# {"status":"ok","version":"0.1.0","llm_provider":"anthropic","llm_model":"claude-sonnet-4-6"}
+# {"status":"ok","version":"0.3.5","llm_provider":"anthropic","llm_model":"claude-sonnet-4-6"}
 ```
 
 Translate a file:
