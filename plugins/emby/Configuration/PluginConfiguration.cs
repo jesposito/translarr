@@ -13,8 +13,8 @@ namespace Translarr.Emby.Configuration
     {
         public PluginConfiguration()
         {
-            // Default to a sibling container on ansiblenet, the deploy
-            // target. Users will override this
+            // Default to a sibling container on ansiblenet, the usual
+            // Unraid deploy target. Users will override this
             // from the settings page once TR-7p7.2.2 ships.
             ServerUrl = "http://translarr:9000";
 
@@ -32,7 +32,7 @@ namespace Translarr.Emby.Configuration
             // applies this remap (simple prefix substitution). Format:
             //   <emby-prefix>:<translarr-prefix>
             // Empty/missing = no remap (pass the Emby path through unchanged).
-            // Default reflects the TheAnsible Unraid deploy.
+            // Default reflects the usual Unraid deploy layout.
             MediaPathRemap = "/mnt/:/media/";
         }
 

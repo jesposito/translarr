@@ -43,15 +43,3 @@ npm run build          # → ui/dist/
 `server/main.py` mounts `ui/dist/` at `/` via `StaticFiles(html=True)` AFTER all API routers, so existing endpoints (`/health`, `/translate`, `/jobs/{id}`, `/webhooks/*`) continue to win route resolution. The mount is guarded: if `ui/dist/` does not exist (e.g., a dev environment that never ran `npm run build`), the server starts cleanly and `/` simply 404s.
 
 Production Docker build should run `npm ci && npm run build` inside `ui/` as a separate build stage, then copy `ui/dist/` into the final image alongside the Python code.
-
-## Roadmap
-
-This task (TR-7p7.13.1) only scaffolds the framework and verifies the FastAPI mount. Real screens land in subsequent tasks:
-
-- TR-7p7.13.2 — design consultation
-- TR-7p7.13.3 — dashboard
-- TR-7p7.13.4 — job detail
-- TR-7p7.13.5 — settings
-- TR-7p7.13.6 — glossary editor
-- TR-7p7.13.7 — coverage matrix
-- TR-7p7.13.8 — accessibility review (WCAG 2.2 AA)

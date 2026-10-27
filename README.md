@@ -288,11 +288,11 @@ translarr/
 |   +-- emby/            # C# Emby plugin (ISubtitleProvider)
 |   +-- jellyfin/        # C# Jellyfin plugin (planned)
 +-- templates/           # Unraid Community Applications template
-+-- tests/               # pytest: 210 tests
++-- tests/               # pytest suite
 +-- docs/
 |   +-- ARCHITECTURE.md
 |   +-- INSTALL.md
-|   +-- COMPETITIVE-ANALYSIS.md
+|   +-- EMBY-WORKFLOW.md
 +-- docker-compose.yml
 +-- Dockerfile
 +-- pyproject.toml
