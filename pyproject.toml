@@ -8,6 +8,7 @@ license = { file = "LICENSE" }
 authors = [{ name = "Jed Esposito" }]
 dependencies = [
   "fastapi>=0.115",
+  "python-multipart>=0.0.20",
   "uvicorn[standard]>=0.32",
   "pydantic>=2.9",
   "pydantic-settings>=2.6",

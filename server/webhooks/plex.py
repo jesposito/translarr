@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Any
 
 import structlog
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 
 from server.config import settings
 from server.webhooks.queue import enqueue
@@ -49,13 +49,13 @@ def _event_name(payload: dict[str, Any]) -> str:
 async def plex(request: Request) -> dict[str, str]:
     """Handle Plex webhook notifications.
 
-    Plex sends webhooks as ``application/x-www-form-urlencoded`` with a
-    ``payload`` field containing JSON. We handle both form-encoded and
-    raw JSON bodies.
+    Plex sends webhooks as ``multipart/form-data`` with a ``payload``
+    field containing JSON. We handle multipart, url-encoded form and raw
+    JSON bodies.
     """
     content_type = request.headers.get("content-type", "")
 
-    if "application/x-www-form-urlencoded" in content_type:
+    if "multipart/form-data" in content_type or "application/x-www-form-urlencoded" in content_type:
         form = await request.form()
         raw = form.get("payload")
         if not raw:
@@ -65,7 +65,13 @@ async def plex(request: Request) -> dict[str, str]:
         except (json.JSONDecodeError, TypeError):
             return {"status": "invalid_payload"}
     else:
-        payload = await request.json()
+        try:
+            payload = await request.json()
+        except ValueError:
+            return {"status": "invalid_payload"}
+
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail="payload must be a JSON object")
 
     event = _event_name(payload)
     log.info("plex_event", event_type=event)

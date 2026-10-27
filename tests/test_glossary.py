@@ -124,6 +124,10 @@ class TestGlossaryAPI:
         r = client.post("/glossaries/test", json={"source_term": "hello"})
         assert r.status_code == 400
 
+    def test_null_fields_rejected(self, client):
+        r = client.post("/glossaries/test", json={"source_term": None, "translation": "hi"})
+        assert r.status_code == 400
+
     def test_different_target_langs(self, client):
         """Same term, different target languages → separate entries."""
         client.post("/glossaries/show", json={

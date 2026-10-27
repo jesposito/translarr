@@ -142,7 +142,9 @@ def estimate_cents(model: str, tokens_in: int, tokens_out: int) -> int:
             _warned_unknown.add(model)
         rates = (300, 1500)
     in_rate, out_rate = rates
-    return (tokens_in * in_rate + tokens_out * out_rate) // 1_000_000
+    # Round up: flooring made a whole episode on a cheap model cost 0c, so
+    # the daily cap never accumulated.
+    return -(-(tokens_in * in_rate + tokens_out * out_rate) // 1_000_000)
 
 
 def reset_for_tests() -> None:

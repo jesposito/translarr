@@ -13,11 +13,14 @@ Lookup strategy: given a media_path, find the series_config whose
 
 from __future__ import annotations
 
+import contextlib
 import time
+from pathlib import Path
 from typing import Any
 
 import structlog
 
+from server.config import settings
 from server.db import get_conn
 
 log = structlog.get_logger()
@@ -46,10 +49,25 @@ def get_series(series_id: str) -> dict[str, Any] | None:
     return dict(row) if row else None
 
 
+def _media_relative(path: str) -> Path:
+    """Express a path relative to MEDIA_ROOT when it lives under it.
+
+    The UI stores prefixes relative to MEDIA_ROOT ("TV/Show") while
+    webhooks send absolute paths ("/media/TV/Show/..."), so both sides are
+    normalised before comparing.
+    """
+    p = Path(path)
+    if p.is_absolute():
+        with contextlib.suppress(ValueError):
+            return p.relative_to(settings.media_root)
+    return p
+
+
 def lookup_by_path(media_path: str) -> dict[str, Any] | None:
     """Find the best-matching series config for a media path.
 
-    Returns the series whose path_prefix is the longest prefix of media_path.
+    Returns the series whose path_prefix is the longest whole-component
+    prefix of media_path, so "TV/Show" never claims "TV/Show 2".
     """
     conn = get_conn()
     rows = conn.execute(
@@ -58,13 +76,14 @@ def lookup_by_path(media_path: str) -> dict[str, Any] | None:
         "WHERE path_prefix IS NOT NULL"
     ).fetchall()
 
+    media = _media_relative(media_path)
     best: dict[str, Any] | None = None
     best_len = 0
     for row in rows:
-        prefix = row["path_prefix"] or ""
-        if media_path.startswith(prefix) and len(prefix) > best_len:
+        prefix = _media_relative(row["path_prefix"] or "")
+        if media.is_relative_to(prefix) and len(prefix.parts) > best_len:
             best = dict(row)
-            best_len = len(prefix)
+            best_len = len(prefix.parts)
     return best
 
 

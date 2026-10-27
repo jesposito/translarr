@@ -83,3 +83,16 @@ class TestReconcileLines:
     def test_pads_then_truncates_handles_only_blanks(self) -> None:
         # All blanks get stripped, then padded to expected length.
         assert reconcile_lines(["", "", ""], 2) == ["", ""]
+
+
+class TestReconcileWrapperNoise:
+    def test_preamble_line_dropped(self):
+        raw = ["Here are the translations:", "Hola", "Adios"]
+        assert reconcile_lines(raw, 2) == ["Hola", "Adios"]
+
+    def test_code_fence_dropped(self):
+        assert reconcile_lines(["```", "Hola", "Adios", "```"], 2) == ["Hola", "Adios"]
+
+    def test_think_block_dropped_and_blank_cue_kept(self):
+        raw = ["<think>hmm", "ok</think>", "Hola", "", "Adios"]
+        assert reconcile_lines(raw, 3) == ["Hola", "", "Adios"]

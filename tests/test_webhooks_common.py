@@ -45,3 +45,8 @@ class TestHasTranslateTag:
     def test_case_sensitive_match(self) -> None:
         payload = {"movie": {"tags": ["Translate"]}}
         assert has_translate_tag(payload, "movie", "translate") is False
+
+
+def test_non_dict_entity_or_tags_returns_false() -> None:
+    assert has_translate_tag({"movie": "oops"}, "movie", "x") is False
+    assert has_translate_tag({"movie": {"tags": "x"}}, "movie", "x") is False

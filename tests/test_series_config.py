@@ -187,3 +187,17 @@ class TestResolveOverrides:
         )
         assert target == "en"
         assert source == "ja"
+
+
+def test_lookup_by_path_absolute_media_and_whole_components(monkeypatch, tmp_path):
+    from server.config import settings
+
+    monkeypatch.setattr(settings, "media_root", tmp_path)
+    upsert_series("show", path_prefix="TV/Show")
+    upsert_series("abs", path_prefix=str(tmp_path / "Movies/Alien"))
+
+    match = lookup_by_path(str(tmp_path / "TV/Show/S01/ep01.mkv"))
+    assert match is not None and match["id"] == "show"
+    assert lookup_by_path(str(tmp_path / "TV/Show 2/S01/ep01.mkv")) is None
+    match = lookup_by_path("Movies/Alien/Alien.mkv")
+    assert match is not None and match["id"] == "abs"

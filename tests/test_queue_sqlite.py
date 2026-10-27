@@ -132,3 +132,29 @@ def test_dedup_key_differs_on_different_target():
     k1 = compute_dedup_key("/m/x.mkv", None, "en")
     k2 = compute_dedup_key("/m/x.mkv", None, "es")
     assert k1 != k2
+
+
+def test_cancel_while_running_survives_finish_and_failure():
+    q = sqlite_q.get_queue()
+    a = q.enqueue(_make_job("/m/a.mkv"))
+    b = q.enqueue(_make_job("/m/b.mkv"))
+    q.claim_next()
+    q.claim_next()
+    q.update_state(a.id, JobState.CANCELLED)
+    q.update_state(b.id, JobState.CANCELLED)
+    q.finish(a.id, output_path="/o.srt", cost_cents=1, tokens_in=1, tokens_out=1, output_events=1)
+    q.mark_failed(b.id, "boom")
+    assert q.get(a.id).state == JobState.CANCELLED
+    assert q.get(b.id).state == JobState.CANCELLED
+
+
+def test_reset_orphaned_fails_job_out_of_attempts():
+    q = sqlite_q.get_queue()
+    job = q.enqueue(_make_job())
+    for _ in range(job.max_attempts):
+        q.claim_next()
+        if q.get(job.id).attempts < job.max_attempts:
+            q.mark_failed(job.id, "crash")
+    assert q.get(job.id).state == JobState.RUNNING
+    sqlite_q.reset_for_tests()
+    assert sqlite_q.get_queue().get(job.id).state == JobState.FAILED

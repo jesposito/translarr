@@ -37,7 +37,10 @@ _STREAM_PREFIXES = (
 
 def _extract_path(payload: dict[str, Any]) -> str | None:
     item = payload.get("Item") or payload.get("item") or {}
-    return item.get("Path") or item.get("path")
+    if not isinstance(item, dict):
+        return None
+    path = item.get("Path") or item.get("path")
+    return path if isinstance(path, str) else None
 
 
 def _is_translatable_path(path: str) -> bool:

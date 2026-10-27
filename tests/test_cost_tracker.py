@@ -53,3 +53,8 @@ def test_check_job_cap_raises_over_estimate():
 
 def test_check_job_cap_passes_under_estimate():
     cost_tracker.check_job_cap(estimated_cents=499, max_job_cents=500)
+
+
+def test_estimate_rounds_up_small_jobs():
+    # A whole episode on a cheap model must not round down to 0c.
+    assert cost_tracker.estimate_cents("deepseek-chat", 12_000, 6_000) == 1

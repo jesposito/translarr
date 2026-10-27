@@ -10,6 +10,8 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+from fastapi import HTTPException
+
 from server.config import settings
 
 # Extensions we consider media files (video containers).
@@ -40,10 +42,10 @@ def browse_path(relative_path: str = "") -> dict:
     try:
         target.relative_to(root)
     except ValueError:
-        return {"error": "path outside MEDIA_ROOT", "path": relative_path}
+        raise HTTPException(status_code=403, detail="path outside MEDIA_ROOT") from None
 
     if not target.is_dir():
-        return {"error": "not a directory", "path": relative_path}
+        raise HTTPException(status_code=404, detail="not a directory")
 
     # Compute parent path. None means we're at MEDIA_ROOT (no parent).
     parent_rel: str | None
@@ -60,7 +62,7 @@ def browse_path(relative_path: str = "") -> dict:
     try:
         entries = sorted(target.iterdir(), key=lambda p: p.name.lower())
     except PermissionError:
-        return {"error": "permission denied", "path": relative_path}
+        raise HTTPException(status_code=403, detail="permission denied") from None
 
     for entry in entries:
         name = entry.name
@@ -105,7 +107,7 @@ def _find_translations(media_path: Path) -> list[dict]:
     translations = []
     try:
         for f in parent.iterdir():
-            if f.name.startswith(stem) and ".translarr." in f.name and f.suffix in (".srt", ".ass", ".ssa", ".vtt"):
+            if f.name.startswith(stem + ".") and ".translarr." in f.name and f.suffix in (".srt", ".ass", ".ssa", ".vtt"):
                 # Extract language from pattern: stem.<lang>.translarr.srt
                 match = re.search(r"\.([a-z]{2,3})\.translarr\.", f.name)
                 lang = match.group(1) if match else "unknown"

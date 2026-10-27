@@ -58,6 +58,13 @@ def test_post_translate_different_target_lang_not_deduped(client):
     assert es["status"] == "queued"
 
 
+def test_post_translate_rejects_path_like_target_lang(client):
+    r = client.post(
+        "/translate", json={"media_path": "/movies/x.mkv", "target_lang": "../../evil"}
+    )
+    assert r.status_code == 422
+
+
 def test_get_jobs_returns_job_state(client):
     enq = client.post("/translate", json={"media_path": "/movies/x.mkv", "target_lang": "en"}).json()
     r = client.get(f"/jobs/{enq['job_id']}")

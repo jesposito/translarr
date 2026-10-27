@@ -92,6 +92,7 @@ def compute_quality(
     source: list[SubEvent],
     adapted: list[SubEvent],
     max_cps: int,
+    children: list[list[SubEvent]] | None = None,
 ) -> TimingQuality:
     """Compute TimingQuality comparing pre-adapt source events to post-adapt output.
 
@@ -101,12 +102,20 @@ def compute_quality(
     Both lists are assumed sorted by start_ms (pipeline guarantee). The
     adapter never reorders across source cues, so each source cue maps to
     an adjacent contiguous span of adapted cues.
+
+    Pass `children` (the adapted cues produced from each source cue) when
+    known: inferring the mapping from timestamps misassigns cues that
+    overlap or share a start time, as signs + dialogue often do.
     """
     if not source:
         return _empty_quality(max_cps)
 
     # === Map source -> contiguous adapted children ===
-    groups = _group_adapted_by_source(source, adapted)
+    groups = (
+        list(zip(source, children, strict=True))
+        if children is not None
+        else _group_adapted_by_source(source, adapted)
+    )
 
     # === 1. Readability conformance ===
     overrun_count = 0

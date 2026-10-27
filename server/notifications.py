@@ -15,8 +15,8 @@ ntfy's wire format (used here):
 
 We deliberately use HTTP headers (not the JSON variant) so the same
 config works against the public ntfy.sh, a self-hosted ntfy, and any
-plain HTTP endpoint that just logs the body. The user's iPhone+ntfy
-setup consumes these directly.
+plain HTTP endpoint that just logs the body. The ntfy mobile apps
+consume these directly.
 
 Config:
 
@@ -30,6 +30,7 @@ Config:
 
 from __future__ import annotations
 
+from email.header import Header
 from pathlib import Path
 
 import httpx
@@ -60,7 +61,9 @@ async def _post(title: str, body: str, *, priority: int, tags: str) -> None:
                 url,
                 content=body.encode("utf-8"),
                 headers={
-                    "Title": title,
+                    # httpx headers are ASCII-only; ntfy decodes RFC 2047
+                    # encoded-words, so non-ASCII titles go out encoded.
+                    "Title": title if title.isascii() else Header(title, "utf-8").encode(maxlinelen=0),
                     "Priority": str(priority),
                     "Tags": tags,
                 },

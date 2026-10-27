@@ -199,13 +199,16 @@ class SQLiteQueue:
                 "UPDATE jobs SET source_track_index=? WHERE id=? AND source_track_index IS NULL",
                 (source_track_index, job_id),
             )
+        # Guarded on state='running' (here and in mark_failed): a user who
+        # cancels mid-run must not see the job flip back to done/retrying
+        # when the worker finishes.
         conn.execute(
             """
             UPDATE jobs SET
                 state='done', output_path=?, cost_cents=?, tokens_in=?,
                 tokens_out=?, timing_quality_score=?, timing_quality_json=?,
                 finished_at=?, updated_at=?
-            WHERE id=?
+            WHERE id=? AND state='running'
             """,
             (
                 output_path, cost_cents, tokens_in, tokens_out,
@@ -223,14 +226,15 @@ class SQLiteQueue:
             return
         if row["attempts"] < row["max_attempts"]:
             conn.execute(
-                "UPDATE jobs SET state='retrying', error=?, updated_at=? WHERE id=?",
+                "UPDATE jobs SET state='retrying', error=?, updated_at=? "
+                "WHERE id=? AND state='running'",
                 (error, now, job_id),
             )
         else:
             conn.execute(
                 """
                 UPDATE jobs SET state='failed', error=?, finished_at=?, updated_at=?
-                WHERE id=?
+                WHERE id=? AND state='running'
                 """,
                 (error, now, now, job_id),
             )
@@ -251,7 +255,7 @@ class SQLiteQueue:
             rows = conn.execute(
                 """
                 SELECT * FROM jobs WHERE state = ?
-                ORDER BY created_at DESC LIMIT ? OFFSET ?
+                ORDER BY created_at DESC, rowid DESC LIMIT ? OFFSET ?
                 """,
                 (state.value, limit, offset),
             ).fetchall()
@@ -260,7 +264,7 @@ class SQLiteQueue:
             rows = conn.execute(
                 """
                 SELECT * FROM jobs
-                ORDER BY created_at DESC LIMIT ? OFFSET ?
+                ORDER BY created_at DESC, rowid DESC LIMIT ? OFFSET ?
                 """,
                 (limit, offset),
             ).fetchall()
@@ -347,11 +351,24 @@ class SQLiteQueue:
         }
 
     def reset_orphaned_running_jobs(self) -> int:
-        """Server-start recovery: reset stuck RUNNING jobs to QUEUED."""
+        """Server-start recovery: reset stuck RUNNING jobs to QUEUED.
+
+        A job that already used its last attempt is failed instead, so a
+        file that crashes the container isn't re-claimed on every restart.
+        """
         conn = get_conn()
+        now = _now()
+        conn.execute(
+            """
+            UPDATE jobs SET state='failed', error=COALESCE(error, 'interrupted_by_restart'),
+                finished_at=?, updated_at=?
+            WHERE state='running' AND attempts >= max_attempts
+            """,
+            (now, now),
+        )
         cur = conn.execute(
             "UPDATE jobs SET state='queued', updated_at=? WHERE state='running'",
-            (_now(),),
+            (now,),
         )
         if cur.rowcount > 0:
             log.info("reset_orphaned_running", count=cur.rowcount)

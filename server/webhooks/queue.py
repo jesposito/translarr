@@ -22,6 +22,25 @@ from server.series_config import resolve_overrides
 log = structlog.get_logger()
 
 
+def blocks_new_job(existing: Job) -> bool:
+    """True when an existing job with the same dedup key should block a new one.
+
+    In-flight jobs always block. A DONE job blocks only while its output
+    still exists on disk; a DONE row with no output_path is a no-subs skip
+    and keeps blocking. FAILED/CANCELLED never block.
+    """
+    if existing.state in {JobState.QUEUED, JobState.RUNNING, JobState.RETRYING}:
+        return True
+    if existing.state != JobState.DONE:
+        return False
+    if not existing.output_path:
+        return True
+    out = Path(existing.output_path)
+    if not out.is_absolute():
+        out = settings.media_root / out
+    return out.exists()
+
+
 async def enqueue(path: Path, target_lang: str | None = None) -> str | None:
     """Enqueue a translation job for the given media path.
 
@@ -44,7 +63,7 @@ async def enqueue(path: Path, target_lang: str | None = None) -> str | None:
 
     q = get_queue()
     existing = q.find_by_dedup(dedup)
-    if existing and existing.state in {JobState.QUEUED, JobState.RUNNING, JobState.RETRYING, JobState.DONE}:
+    if existing and blocks_new_job(existing):
         log.info("webhook_dedup_skip", media_path=media_path, existing_job=existing.id, state=existing.state.value)
         return None
 

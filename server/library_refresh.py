@@ -5,21 +5,23 @@ scan. Never raises — translation already succeeded, refresh failures are
 just logged.
 
 Item-specific lookup:
-  Emby:     GET /emby/Items?Path={encoded_path}&api_key=X → extract Id
-            POST /emby/Items/{Id}/Refresh?api_key=X
-  Jellyfin: GET /Items?Path={encoded_path}&X-Emby-Token=X → extract Id
-            POST /Items/{Id}/Refresh?X-Emby-Token=X
+  Emby:     GET /emby/Items?Path={encoded_path} → extract Id
+            POST /emby/Items/{Id}/Refresh
+  Jellyfin: GET /Items?Path={encoded_path} → extract Id
+            POST /Items/{Id}/Refresh
+  Both authenticate with the X-Emby-Token header so the key never lands
+  in a URL (and so never in access logs).
 """
 
 from __future__ import annotations
 
 import asyncio
-import contextlib
 from pathlib import Path
 
 import httpx
 import structlog
 
+from server.browse import MEDIA_EXTENSIONS
 from server.config import settings
 
 log = structlog.get_logger()
@@ -31,11 +33,11 @@ async def refresh_libraries_after(output_path: Path) -> None:
     Called after a successful translation write. Each refresh is bounded by
     library_refresh_timeout_seconds. Failures are logged but don't propagate.
     """
-    # Resolve the output path relative to MEDIA_ROOT so Emby/Jellyfin
-    # can match it against their internal path database.
-    media_path = str(output_path)
-    with contextlib.suppress(ValueError):
-        media_path = str(output_path.relative_to(settings.media_root))
+    # Emby/Jellyfin index the media file (not our sidecar) by its absolute
+    # path, so look up the video next to the .srt.
+    # Assumes both servers mount media at the same path as Translarr;
+    # add a path-mapping setting if a deployment differs.
+    media_path = str(_media_for_output(output_path))
 
     tasks = []
     if settings.emby_url and settings.emby_api_key:
@@ -51,6 +53,19 @@ async def refresh_libraries_after(output_path: Path) -> None:
             log.warning("library_refresh_failed", error=str(r))
 
 
+def _media_for_output(output_path: Path) -> Path:
+    """Return the media file a ``<stem>.<lang>.translarr.srt`` belongs to.
+
+    Falls back to the output path itself when no sibling video is found.
+    """
+    stem = output_path.name.split(".translarr.")[0].rsplit(".", 1)[0]
+    for ext in sorted(MEDIA_EXTENSIONS):
+        candidate = output_path.with_name(stem + ext)
+        if candidate.exists():
+            return candidate
+    return output_path
+
+
 async def _find_emby_item(media_path: str, base_url: str, api_key: str) -> str | None:
     """Look up an Emby item ID by file path. Returns None if not found."""
     timeout = settings.library_refresh_timeout_seconds
@@ -61,8 +76,8 @@ async def _find_emby_item(media_path: str, base_url: str, api_key: str) -> str |
                 "Path": media_path,
                 "Recursive": "true",
                 "Limit": "1",
-                "api_key": api_key,
             },
+            headers={"X-Emby-Token": api_key},
         )
         if resp.status_code >= 400:
             return None
@@ -87,14 +102,14 @@ async def _refresh_emby_item(media_path: str) -> None:
     if item_id:
         url = f"{base_url}/emby/Items/{item_id}/Refresh"
         async with httpx.AsyncClient(timeout=timeout) as client:
-            resp = await client.post(url, params={"api_key": api_key})
+            resp = await client.post(url, headers={"X-Emby-Token": api_key})
             resp.raise_for_status()
         log.info("emby_item_refresh_ok", item_id=item_id)
         return
 
     url = f"{base_url}/emby/Library/Refresh"
     async with httpx.AsyncClient(timeout=timeout) as client:
-        resp = await client.post(url, params={"api_key": api_key})
+        resp = await client.post(url, headers={"X-Emby-Token": api_key})
         resp.raise_for_status()
     log.info("emby_full_refresh_ok")
 

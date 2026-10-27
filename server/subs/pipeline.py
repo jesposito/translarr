@@ -9,7 +9,7 @@ from pathlib import Path
 import pysubs2
 import structlog
 
-from server import cost_tracker, library_refresh
+from server import cost_tracker, glossary, library_refresh
 from server.async_utils import fire_and_forget
 from server.config import settings
 from server.llm.router import get_provider
@@ -17,6 +17,7 @@ from server.models import TranslateRequest, TranslateResponse
 from server.subs.extract import (
     extract_track,
     has_only_bitmap_tracks,
+    has_translateable_track,
     list_sub_tracks,
     pick_source_track,
 )
@@ -122,7 +123,13 @@ async def translate_media(req: TranslateRequest) -> TranslateResponse:
                 f"roadmap; for now add a sidecar .srt or wait for a text-sub release."
             )
 
-        if tracks:
+        # Embedded tracks only count when one isn't already in the target
+        # language (or the caller pinned a track); otherwise we'd pay to
+        # translate en->en and never look at a usable sidecar.
+        if tracks and (
+            req.source_track_index is not None
+            or has_translateable_track(tracks, target_lang)
+        ):
             track = pick_source_track(tracks, req.source_track_index, target_lang)
             source_lang = req.source_lang or track.language or "auto"
             detected_track_index = track.index
@@ -143,7 +150,7 @@ async def translate_media(req: TranslateRequest) -> TranslateResponse:
             if sidecar is None:
                 raise NoSourceSubtitles(
                     f"no_source_subtitles: {media.name}. Looked for embedded sub tracks "
-                    f"(ffprobe found none) and for sidecar files next to the media "
+                    f"(none in a non-target language) and for sidecar files next to the media "
                     f"({media.parent}). v0.8a+ will add provider-fetch fallback; "
                     f"v0.9 adds Whisper-from-audio. For v0.1, add a subtitle track manually."
                 )
@@ -157,12 +164,18 @@ async def translate_media(req: TranslateRequest) -> TranslateResponse:
             )
 
     subs = _load_subs_with_encoding_fallback(raw_path)
-    log.info("loaded_sub_file", events=len(subs.events))
+    # ASS Comment events (karaoke templates, typesetter notes) are never
+    # shown; translating them would turn them into visible SRT cues.
+    src_events = [ev for ev in subs.events if not ev.is_comment]
+    log.info("loaded_sub_file", events=len(src_events))
 
     provider = get_provider()
+    glossary_map = (
+        glossary.get_glossary_map(req.glossary_id, target_lang) if req.glossary_id else None
+    ) or None
     start = time.monotonic()
 
-    lines = [_strip_for_translation(ev.text) for ev in subs.events]
+    lines = [_strip_for_translation(ev.text) for ev in src_events]
     translations: list[str] = []
     prior: list[str] = []
     batch_size = 30
@@ -178,6 +191,7 @@ async def translate_media(req: TranslateRequest) -> TranslateResponse:
                 source_lang=source_lang,
                 target_lang=target_lang,
                 prior_context=prior[-settings.context_window_lines :],
+                glossary=glossary_map,
             )
             translations.extend(out)
             prior.extend(out)
@@ -187,7 +201,7 @@ async def translate_media(req: TranslateRequest) -> TranslateResponse:
             tokens_out_total += sum(len(s) for s in out) // 4
 
             # Per-job cost gate at batch boundary.
-            est = cost_tracker.estimate_cents(provider.model, tokens_in_total, tokens_out_total)
+            est = _estimate_cost(provider, tokens_in_total, tokens_out_total)
             cost_tracker.check_job_cap(est, settings.max_cost_cents_per_job)
 
     try:
@@ -196,14 +210,19 @@ async def translate_media(req: TranslateRequest) -> TranslateResponse:
         raise TimeoutError(
             f"job_timeout: exceeded {settings.job_timeout_seconds}s before completion"
         ) from e
+    finally:
+        # Record what the batches cost even when the job dies part-way (cap
+        # hit, timeout, provider error), or retries could spend past the
+        # daily cap without it ever seeing the money.
+        cost_cents = _estimate_cost(provider, tokens_in_total, tokens_out_total)
+        cost_tracker.record(cost_cents)
 
     # Reconcile LLM output count to source event count. The pipeline
-    # invariant is that
-    # output_count == input_count. LLMs occasionally drop or merge
+    # invariant is that output_count == input_count. LLMs occasionally drop or merge
     # adjacent lines; we pad with the original text (verbatim
     # passthrough is safer than empty) or truncate as needed, then log
     # the deviation so the critic pass (v0.4) can flag it.
-    expected = len(subs.events)
+    expected = len(src_events)
     if len(translations) < expected:
         log.warning(
             "translation_undercount",
@@ -212,7 +231,7 @@ async def translate_media(req: TranslateRequest) -> TranslateResponse:
             padded=expected - len(translations),
         )
         for i in range(len(translations), expected):
-            translations.append(_strip_for_translation(subs.events[i].text))
+            translations.append(lines[i])
     elif len(translations) > expected:
         log.warning(
             "translation_overcount",
@@ -222,9 +241,11 @@ async def translate_media(req: TranslateRequest) -> TranslateResponse:
         )
         del translations[expected:]
 
+    # A blank translation for a non-blank line means the model dropped it;
+    # show the original rather than an empty cue.
     events = [
-        SubEvent(start_ms=ev.start, end_ms=ev.end, text=t, style=ev.style)
-        for ev, t in zip(subs.events, translations, strict=True)
+        SubEvent(start_ms=ev.start, end_ms=ev.end, text=t if t.strip() else src, style=ev.style)
+        for ev, t, src in zip(src_events, translations, lines, strict=True)
     ]
     # Per-language CPS override: CJK reads at ~7 cps, Latin at ~17. The
     # global reading_rate_cps is the fallback for languages not in the
@@ -233,11 +254,12 @@ async def translate_media(req: TranslateRequest) -> TranslateResponse:
     # Keep an immutable snapshot of pre-adapt events for the quality check
     # below. adapt_events_for_cps is documented pure but we copy defensively.
     pre_adapt = list(events)
-    adapted = adapt_events_for_cps(pre_adapt, max_cps=cps)
+    children = [adapt_events_for_cps([ev], max_cps=cps) for ev in pre_adapt]
+    adapted = [child for group in children for child in group]
 
     # Timing-quality readout (TR-wzj). Re-bucket badge in case the user
     # overrode the badge thresholds via settings.
-    quality = compute_quality(pre_adapt, adapted, max_cps=cps)
+    quality = compute_quality(pre_adapt, adapted, max_cps=cps, children=children)
     quality_dict = quality.to_dict()
     quality_dict["badge"] = bucket_badge(
         quality.score,
@@ -261,8 +283,6 @@ async def translate_media(req: TranslateRequest) -> TranslateResponse:
     out_subs.save(str(out_path), format_="srt")
 
     elapsed = time.monotonic() - start
-    cost_cents = cost_tracker.estimate_cents(provider.model, tokens_in_total, tokens_out_total)
-    cost_tracker.record(cost_cents)
 
     # Library refresh — fire-and-forget so it doesn't block job completion.
     fire_and_forget(library_refresh.refresh_libraries_after(out_path))
@@ -292,6 +312,14 @@ async def translate_media(req: TranslateRequest) -> TranslateResponse:
         timing_quality_score=quality.score,
         timing_quality_json=json.dumps(quality_dict),
     )
+
+
+def _estimate_cost(provider, tokens_in: int, tokens_out: int) -> int:
+    # Local Ollama models cost nothing; pricing them at the cloud fallback
+    # rate would trip the daily cap during a library fill.
+    if provider.name == "ollama":
+        return 0
+    return cost_tracker.estimate_cents(provider.model, tokens_in, tokens_out)
 
 
 def _strip_for_translation(text: str) -> str:
@@ -379,9 +407,13 @@ def _find_sidecar_subtitle(media: Path, target_lang: str) -> _SidecarSub | None:
                 continue
             if entry.suffix.lower() not in SUB_EXTENSIONS:
                 continue
-            # Must share the media's basename (case-sensitive).
+            # Must share the media's basename (case-sensitive) as a whole
+            # dotted prefix, so "Show - 1" doesn't pick up "Show - 10.ru.srt".
+            # Skip our own output; it's a translation, not a source.
             entry_stem = entry.stem
-            if not entry_stem.startswith(basename):
+            if entry_stem != basename and not entry_stem.startswith(basename + "."):
+                continue
+            if ".translarr" in entry_stem[len(basename):]:
                 continue
             tail = entry_stem[len(basename):].lstrip(".")
             lang = _parse_sidecar_lang(tail)

@@ -28,7 +28,13 @@ async def radarr(payload: dict[str, Any]) -> dict[str, str]:
         return {"status": "ignored", "reason": "no_translate_tag"}
 
     movie_file = payload.get("movieFile") or {}
-    path = movie_file.get("path") or movie_file.get("relativePath")
+    # relativePath is relative to the movie folder, so it is only usable
+    # joined onto movie.folderPath.
+    path = movie_file.get("path")
+    rel = movie_file.get("relativePath")
+    folder = (payload.get("movie") or {}).get("folderPath")
+    if not path and rel and folder:
+        path = str(Path(folder) / rel)
     if not path:
         return {"status": "no_path"}
 

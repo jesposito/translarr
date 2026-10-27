@@ -79,6 +79,9 @@ async def list_sub_tracks(media_path: Path) -> list[TrackInfo]:
         stdout, stderr = await asyncio.wait_for(
             proc.communicate(), timeout=timeout
         )
+    except asyncio.CancelledError:
+        proc.kill()
+        raise
     except TimeoutError as e:
         proc.kill()
         await proc.wait()
@@ -133,7 +136,9 @@ async def extract_track(media_path: Path, track_index: int, output_path: Path) -
         "-y",
         "-i", str(media_path),
         "-map", f"0:{track_index}",
-        "-c:s", "copy",
+        # Transcode rather than copy: mov_text/webvtt/etc. can't be stream-
+        # copied into an .srt container.
+        "-c:s", "ass" if output_path.suffix == ".ass" else "srt",
         str(partial_path),
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
@@ -143,6 +148,10 @@ async def extract_track(media_path: Path, track_index: int, output_path: Path) -
         _, stderr = await asyncio.wait_for(
             proc.communicate(), timeout=timeout
         )
+    except asyncio.CancelledError:
+        proc.kill()
+        partial_path.unlink(missing_ok=True)
+        raise
     except TimeoutError as e:
         proc.kill()
         await proc.wait()
@@ -191,6 +200,10 @@ def pick_source_track(
     for t in text_tracks:
         track_norm = _normalize_lang(t.language)
         if track_norm and track_norm != target_norm:
+            return t
+    # Next best: an untagged track, which might be a different language.
+    for t in text_tracks:
+        if _normalize_lang(t.language) is None:
             return t
     return text_tracks[0]
 

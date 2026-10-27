@@ -1,6 +1,8 @@
 from pathlib import Path
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+from server.settings_store import _validate_iso639
 
 
 class TranslateRequest(BaseModel):
@@ -23,6 +25,16 @@ class TranslateRequest(BaseModel):
         default=False,
         description="Bypass output-collision policy; back up existing output and re-translate.",
     )
+
+    @field_validator("target_lang")
+    @classmethod
+    def _check_target_lang(cls, v: str | None) -> str | None:
+        # target_lang ends up in the output filename, so only plain ISO codes.
+        # Blank keeps the old "use the default" behaviour.
+        if v is None or not v.strip():
+            return None
+        _validate_iso639(v)
+        return v.strip().lower()
 
 
 class TranslateResponse(BaseModel):

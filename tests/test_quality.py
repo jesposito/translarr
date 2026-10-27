@@ -243,3 +243,15 @@ def test_to_dict_roundtrip():
     parsed = json.loads(s)
     assert parsed["score"] == q.score
     assert parsed["badge"] == q.badge
+
+
+def test_explicit_children_handle_shared_start_times():
+    from server.subs.reading_rate import adapt_events_for_cps
+
+    events = [
+        SubEvent(start_ms=0, end_ms=2000, text="Sign text"),
+        SubEvent(start_ms=0, end_ms=3000, text="Hello there friend"),
+    ]
+    children = [adapt_events_for_cps([ev], max_cps=17) for ev in events]
+    adapted = [c for g in children for c in g]
+    assert compute_quality(events, adapted, max_cps=17, children=children).score == 100.0

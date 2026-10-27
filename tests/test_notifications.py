@@ -127,3 +127,19 @@ async def test_http_error_does_not_raise(monkeypatch):
         await _drain_pending()
     from server.async_utils import pending_count
     assert pending_count() == 0
+
+
+@pytest.mark.asyncio
+async def test_non_ascii_title_is_rfc2047_encoded(monkeypatch):
+    from email.header import decode_header, make_header
+
+    monkeypatch.setattr(settings, "ntfy_url", "https://ntfy.local/translarr")
+    with respx.mock(base_url="https://ntfy.local") as mock:
+        route = mock.post("/translarr").mock(return_value=httpx.Response(200))
+        notifications.notify_success(
+            media_path="/m/進撃の巨人 Mädchen.mkv", target_lang="en", cost_cents=1, duration_s=1.0
+        )
+        await _drain_pending()
+    assert route.called
+    title = route.calls[0].request.headers["Title"]
+    assert str(make_header(decode_header(title))) == "Translarr: 進撃の巨人 Mädchen"

@@ -28,7 +28,13 @@ async def sonarr(payload: dict[str, Any]) -> dict[str, str]:
         return {"status": "ignored", "reason": "no_translate_tag"}
 
     ep_file = payload.get("episodeFile") or {}
-    path = ep_file.get("path") or ep_file.get("relativePath")
+    # relativePath is relative to the series folder, so it is only usable
+    # joined onto series.path.
+    path = ep_file.get("path")
+    rel = ep_file.get("relativePath")
+    folder = (payload.get("series") or {}).get("path")
+    if not path and rel and folder:
+        path = str(Path(folder) / rel)
     if not path:
         return {"status": "no_path"}
 

@@ -129,17 +129,26 @@ class TestBrowse:
         langs = {t["lang"] for t in f["translations"]}
         assert langs == {"en", "es"}
 
+    def test_browse_stem_prefix_does_not_claim_sibling(self, client, tmp_path):
+        _make_media(tmp_path, {
+            "Movies": {
+                "Alien.mkv": "fake",
+                "Aliens.mkv": "fake",
+                "Aliens.en.translarr.srt": "sub",
+            },
+        })
+        r = client.get("/browse", params={"path": "Movies"})
+        by_name = {f["name"]: f for f in r.json()["files"]}
+        assert by_name["Alien.mkv"]["translated"] is False
+        assert by_name["Aliens.mkv"]["translated"] is True
+
     def test_browse_path_traversal_blocked(self, client, tmp_path):
         r = client.get("/browse", params={"path": "../../../etc"})
-        assert r.status_code == 200
-        body = r.json()
-        assert "error" in body
+        assert r.status_code == 403
 
     def test_browse_nonexistent_dir(self, client, tmp_path):
         r = client.get("/browse", params={"path": "nonexistent"})
-        assert r.status_code == 200
-        body = r.json()
-        assert "error" in body
+        assert r.status_code == 404
 
     def test_browse_dir_has_media_flag(self, client, tmp_path):
         _make_media(tmp_path, {

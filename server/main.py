@@ -45,8 +45,11 @@ from server.subs.pipeline import (
     _output_path,
 )
 from server.webhooks import emby, jellyfin, plex, radarr, sonarr
+from server.webhooks.queue import blocks_new_job
 
 logging.basicConfig(level=settings.log_level)
+# httpx logs every request URL at INFO; keep query strings out of the logs.
+logging.getLogger("httpx").setLevel(logging.WARNING)
 log = structlog.get_logger()
 
 # How long /translate/sync blocks waiting for the worker before returning
@@ -203,11 +206,7 @@ async def translate(req: TranslateRequest) -> dict:
 
     q = get_queue()
     existing = q.find_by_dedup(dedup_key)
-    if (
-        existing
-        and existing.state in {JobState.QUEUED, JobState.RUNNING, JobState.RETRYING, JobState.DONE}
-        and not req.force
-    ):
+    if existing and blocks_new_job(existing) and not req.force:
         return {"status": "dedup", "job_id": existing.id, "state": existing.state.value}
     # Force re-translate or no existing: fall through to enqueue.
 
@@ -581,7 +580,7 @@ async def translate_sync(req: TranslateRequest) -> dict:
     q = get_queue()
     existing = q.find_by_dedup(dedup_key)
 
-    if existing and existing.state == JobState.DONE and not req.force:
+    if existing and existing.state == JobState.DONE and blocks_new_job(existing) and not req.force:
         log.info("translate_sync_dedup_done", job_id=existing.id)
         return {
             "output_path": existing.output_path or "",
@@ -821,8 +820,8 @@ async def upsert_glossary_entry(glossary_id: str, body: dict) -> dict:
     detail instead of Pydantic's structured 422 — the Web UI displays
     detail strings inline.
     """
-    source = body.get("source_term", "").strip()
-    translation = body.get("translation", "").strip()
+    source = str(body.get("source_term") or "").strip()
+    translation = str(body.get("translation") or "").strip()
     if not source or not translation:
         raise HTTPException(status_code=400, detail="source_term and translation required")
     glossary_upsert_entry(

@@ -53,7 +53,8 @@ async def test_refresh_emby_item_specific_with_api_key(_emby_configured):
 
     assert refresh_route.called
     req = refresh_route.calls[0].request
-    assert "api_key=embykey123" in str(req.url)
+    assert req.headers.get("X-Emby-Token") == "embykey123"
+    assert "embykey123" not in str(req.url)
 
 
 @respx.mock
@@ -69,7 +70,7 @@ async def test_refresh_emby_fallback_to_full_scan(_emby_configured):
     await library_refresh._refresh_emby_item("Movies/test.mkv")
 
     assert full_route.called
-    assert "api_key=embykey123" in str(full_route.calls[0].request.url)
+    assert full_route.calls[0].request.headers.get("X-Emby-Token") == "embykey123"
 
 
 @respx.mock
@@ -173,3 +174,22 @@ async def test_refresh_libraries_after_calls_both_when_configured(monkeypatch):
     )
 
     await library_refresh.refresh_libraries_after(Path("/tmp/x.en.translarr.srt"))
+
+
+@respx.mock
+async def test_lookup_uses_absolute_media_path_not_srt(_emby_configured, tmp_path):
+    media = tmp_path / "Movies" / "Alien (1979).mkv"
+    media.parent.mkdir()
+    media.write_text("fake")
+    lookup = respx.get("http://AnsibleMedia:8096/emby/Items").mock(
+        return_value=httpx.Response(200, json={"Items": []})
+    )
+    respx.post("http://AnsibleMedia:8096/emby/Library/Refresh").mock(
+        return_value=httpx.Response(204)
+    )
+
+    await library_refresh.refresh_libraries_after(media.with_name("Alien (1979).en.translarr.srt"))
+
+    req = lookup.calls[0].request
+    assert req.url.params["Path"] == str(media)
+    assert "api_key" not in str(req.url)

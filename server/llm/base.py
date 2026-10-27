@@ -1,3 +1,4 @@
+import re
 from typing import Protocol
 
 
@@ -17,6 +18,9 @@ class LLMProvider(Protocol):
     ) -> list[str]:
         """Translate a batch of subtitle lines in order, returning same-length list."""
         ...
+
+
+_THINK_RE = re.compile(r"<think>.*?</think>", re.DOTALL)
 
 
 TRANSLATE_SYSTEM_PROMPT = (
@@ -70,11 +74,20 @@ def build_user_message(
 def reconcile_lines(translated: list[str], expected: int) -> list[str]:
     """Force output line count to match expected input count.
 
-    LLMs occasionally drop or merge adjacent lines. We pad with empty
-    strings (so the original text passes through in the pipeline) or
-    truncate as needed.
+    Strips wrapper noise first (<think> blocks from reasoning models, and
+    markdown code fences), since each stray line would shift every later
+    translation onto the wrong cue. Blank lines and a leading preamble
+    ("Here are the translations:") are dropped only when the model
+    returned too many lines, so a genuinely blank cue keeps its slot.
+    Short output is padded with empty strings, which the pipeline replaces
+    with the original text.
     """
-    out = [ln for ln in translated if ln.strip() != "" or expected == 1]
+    text = _THINK_RE.sub("", "\n".join(translated)).strip("\n")
+    out = [ln for ln in text.split("\n") if not ln.strip().startswith("```")]
+    if len(out) > expected:
+        out = [ln for ln in out if ln.strip() != ""] or [""]
+    if len(out) > expected and out[0].rstrip().endswith(":"):
+        out = out[1:]
     if len(out) < expected:
         out += [""] * (expected - len(out))
     elif len(out) > expected:

@@ -72,6 +72,11 @@ def _validate_iso639(v: Any) -> None:
         raise ValueError(f"invalid_lang_code: {v!r}; want 2-3 lowercase letters (e.g. en, eng)")
 
 
+def _validate_nonempty(v: Any) -> None:
+    if not str(v).strip():
+        raise ValueError("must not be empty")
+
+
 def _validate_http_url(v: Any) -> None:
     s = str(v).strip()
     if not s:
@@ -102,6 +107,7 @@ REGISTRY: dict[str, SettingMeta] = {
         section="llm",
         description="Specific model identifier from the chosen provider.",
         mutable=True,
+        validate=_validate_nonempty,
         hint="Takes effect on the next job. e.g. claude-sonnet-4-6, gpt-4o-mini, qwen3:14b.",
     ),
     "ollama_request_timeout_seconds": SettingMeta(
@@ -264,6 +270,7 @@ REGISTRY: dict[str, SettingMeta] = {
         section="arr",
         description="Radarr tag that opts a movie into auto-translation. Imports from a Radarr OnDownload webhook are only enqueued if the movie carries this tag.",
         default_label="radarr_translate",
+        validate=_validate_nonempty,
         hint="Apply the tag in Radarr's UI to mark a movie for translation.",
     ),
     "sonarr_translate_tag": SettingMeta(
@@ -272,6 +279,7 @@ REGISTRY: dict[str, SettingMeta] = {
         section="arr",
         description="Sonarr tag that opts a series into auto-translation.",
         default_label="sonarr_translate",
+        validate=_validate_nonempty,
         hint="Apply the tag at the series level; every new episode inherits it.",
     ),
     "webhook_secret": SettingMeta(
@@ -321,6 +329,7 @@ PRESETS: dict[str, dict[str, Any]] = {
         "label": "Quick & Cheap",
         "description": "Fast translations at the lowest cost. Good enough for most content.",
         "fields": {
+            "llm_provider": "anthropic",
             "llm_model": "claude-haiku-4-5-20251001",
             "reading_rate_cps": 17,
             "context_window_lines": 5,
@@ -331,6 +340,7 @@ PRESETS: dict[str, dict[str, Any]] = {
         "label": "Balanced",
         "description": "Good quality at a reasonable price. Recommended for most users.",
         "fields": {
+            "llm_provider": "anthropic",
             "llm_model": "claude-sonnet-4-6",
             "reading_rate_cps": 17,
             "context_window_lines": 10,
@@ -341,6 +351,7 @@ PRESETS: dict[str, dict[str, Any]] = {
         "label": "Best Quality",
         "description": "Maximum consistency and quality. Slower and more expensive.",
         "fields": {
+            "llm_provider": "anthropic",
             "llm_model": "claude-sonnet-4-6",
             "reading_rate_cps": 15,
             "context_window_lines": 20,
@@ -516,7 +527,7 @@ def _coerce_and_validate(meta: SettingMeta, raw: Any) -> Any:
         try:
             meta.validate(v)
         except ValueError as e:
-            raise SettingValidationError(str(e)) from e
+            raise SettingValidationError(f"{meta.key}: {e}") from e
     return v
 
 
@@ -585,6 +596,9 @@ def clear_override(key: str) -> None:
         setattr(settings, key, getattr(baseline, key))
     except Exception as e:
         log.warning("clear_override_apply_failed", key=key, error=str(e))
+    if key == "max_concurrent":
+        from server.queue.worker import adjust_pool
+        adjust_pool()
     log.info("setting_override_cleared", key=key)
 
 

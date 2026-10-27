@@ -211,3 +211,28 @@ def test_overrides_survive_restart_via_apply_overrides(client, monkeypatch):
     n = apply_overrides_to_settings()
     assert n >= 1
     assert settings.target_lang == "de"
+
+
+def test_clear_max_concurrent_resizes_pool(client, monkeypatch):
+    from server.queue import worker
+    from server.settings_store import clear_override
+
+    calls = []
+    monkeypatch.setattr(worker, "adjust_pool", lambda: calls.append(1))
+    set_override("max_concurrent", 3)
+    clear_override("max_concurrent")
+    assert len(calls) == 2
+
+
+def test_anthropic_presets_reset_provider(client):
+    from server.settings_store import apply_preset
+
+    apply_preset("deepseek_budget")
+    apply_preset("balanced")
+    assert settings.llm_provider == "anthropic"
+
+
+@pytest.mark.parametrize("key", ["llm_model", "radarr_translate_tag", "sonarr_translate_tag"])
+def test_empty_values_rejected(client, key):
+    with pytest.raises(SettingValidationError, match="must not be empty"):
+        set_override(key, "  ")

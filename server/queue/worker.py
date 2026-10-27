@@ -75,12 +75,12 @@ class _Pool:
 
     stop_event: asyncio.Event | None = None
     tasks: list[asyncio.Task] = field(default_factory=list)
-    next_worker_id: int = 0
+    task_ids: dict[asyncio.Task, int] = field(default_factory=dict)
 
     def reset(self) -> None:
         self.stop_event = None
         self.tasks = []
-        self.next_worker_id = 0
+        self.task_ids = {}
 
 
 _pool = _Pool()
@@ -221,7 +221,13 @@ async def worker_loop(stop_event: asyncio.Event, worker_id: int) -> None:
                 await asyncio.wait_for(stop_event.wait(), timeout=_POLL_INTERVAL_SECONDS)
             continue
         log.info("worker_claimed", worker_id=worker_id, job_id=job.id)
-        await _run_job(job)
+        try:
+            await _run_job(job)
+        except Exception:
+            # _run_job handles job errors itself; this only catches failures
+            # in that handling (e.g. a DB error in mark_failed) so the worker
+            # survives instead of dying silently.
+            log.exception("worker_run_job_error", worker_id=worker_id, job_id=job.id)
     log.info("worker_stopped", worker_id=worker_id)
 
 
@@ -243,15 +249,20 @@ def adjust_pool() -> None:
 
     # Prune completed tasks first so the live count is accurate.
     _pool.tasks = [t for t in _pool.tasks if not t.done()]
+    _pool.task_ids = {t: i for t, i in _pool.task_ids.items() if t in _pool.tasks}
     target = settings.max_concurrent
     current = len(_pool.tasks)
 
     if target > current:
-        for _ in range(target - current):
-            tid = _pool.next_worker_id
-            _pool.next_worker_id += 1
+        # Fill the free slot ids below target. Workers exit when their id is
+        # >= max_concurrent, so handing out ever-increasing ids after a shrink
+        # would spawn workers that immediately quit.
+        live_ids = {_pool.task_ids[t] for t in _pool.tasks if t in _pool.task_ids}
+        free_ids = [i for i in range(target) if i not in live_ids]
+        for tid in free_ids[: target - current]:
             task = asyncio.ensure_future(worker_loop(_pool.stop_event, tid))
             _pool.tasks.append(task)
+            _pool.task_ids[task] = tid
         log.info("worker_pool_grew", spawned=target - current, total=target)
     elif target < current:
         # Excess workers self-terminate on their next loop iteration.
@@ -269,8 +280,8 @@ async def start_workers(stop_event: asyncio.Event) -> list[asyncio.Task]:
     _pool.stop_event = stop_event
     n = settings.max_concurrent
     tasks = [asyncio.create_task(worker_loop(stop_event, i)) for i in range(n)]
-    _pool.next_worker_id = n
     _pool.tasks = list(tasks)
+    _pool.task_ids = {t: i for i, t in enumerate(tasks)}
     return tasks
 
 

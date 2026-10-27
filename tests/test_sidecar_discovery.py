@@ -156,3 +156,13 @@ def test_find_sidecar_chamber_of_secrets_real_case(tmp_path: Path):
     assert result is not None
     # One of the non-English ones; deterministic by path sort.
     assert result.lang in ("vi", "id", "da", "nl", "fr", "de")
+
+
+def test_sidecar_ignores_longer_episode_and_own_output(tmp_path: Path):
+    media = tmp_path / "Show - 1.mkv"
+    media.touch()
+    _write_empty(tmp_path / "Show - 10.ru.srt")
+    _write_empty(tmp_path / "Show - 1.en.translarr.srt")
+    assert _find_sidecar_subtitle(media, "fr") is None
+    _write_empty(tmp_path / "Show - 1.ru.srt")
+    assert _find_sidecar_subtitle(media, "fr").path.name == "Show - 1.ru.srt"

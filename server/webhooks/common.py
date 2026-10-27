@@ -20,7 +20,11 @@ def has_translate_tag(payload: dict[str, Any], entity_key: str, tag_label: str) 
     dicts (older versions); both are accepted.
     """
     entity = payload.get(entity_key) or {}
+    if not isinstance(entity, dict):
+        return False
     tags = entity.get("tags") or []
+    if not isinstance(tags, list):
+        return False
     for t in tags:
         if isinstance(t, str) and t == tag_label:
             return True
